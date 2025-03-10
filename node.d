@@ -67,8 +67,8 @@ class RaftNode : Node {
                 // ...
                 break;
             case Message.Type.RAFT.RequestVote:
-                // RequestVote logic
-                // ...
+                _vote(receivedMsg.content["candidateId"].get!NodeId,
+                     receivedMsg.content["term"].get!int);
                 break;
             case Message.Type.RAFT.RequestVoteResponse:
                 // RequestVoteResponse logic
@@ -92,7 +92,9 @@ private:
             srcId: this.m_id,
             dstId: 0, // to fill per peer
             type: Message.Type.RAFT.RequestVote,
-            content: JSONValue(["candidateId" : this.m_id, "term" : m_currentTerm])
+            content: JSONValue(["candidateId" : this.m_id, "term" : m_currentTerm,
+                                "lastLogIndex" : m_entriesQueue.back().content["logIndex"].get!uint,
+                                "lastLogTerm" : m_entriesQueue.back().content["logTerm"].get!int])
         };
 
         foreach (peer; SERVER_IDS) {
@@ -112,9 +114,23 @@ private:
         return true;
     }
 
-    auto _vote() {
-        // Implement voting logic
-        // ...
+    bool _vote(NodeId candidateId, int term) {
+        bool voteGranted = true;
+        if (term < m_currentTerm || m_state != RaftState.Follower) {
+            voteGranted = false;
+        } else {
+            m_votedFor = candidateId;
+        }
+        
+        Message response = {
+            srcId: this.m_id,
+            dstId: candidateId,
+            type: Message.Type.RAFT.RequestVoteResponse,
+            content: JSONValue(["candidateId" : candidateId, "term" : term,
+                                    "voteGranted" : voteGranted])
+        };
+        m_communicator.send(response);
+        return true;
     }
 
     void _resetElectionTimeout() {
