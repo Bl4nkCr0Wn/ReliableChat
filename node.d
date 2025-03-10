@@ -1,10 +1,13 @@
 module node;
 
 import std.stdio;
-import globals;
-import communication;
+import core.thread;
 import std.datetime;
 import std.random;
+import std.container.dlist;
+
+import globals;
+import communication;
 
 // Base class for nodes
 class Node {
@@ -26,15 +29,14 @@ class RaftNode : Node {
     private uint m_currentTerm = 0;
     private NodeId m_votedFor = 0;
     private NodeId m_currentLeader = INVALID_LEADER_ID;
-    import std.container.array: Array;
-    private Array!Message m_entriesQueue;
+    private DList!Message m_entriesQueue;
     private Duration m_electionTimeout;
     private SysTime m_lastHeartbeat;
 
     this(NodeId id, ICommunicator communicator) {
         super(id, communicator);
-        m_entriesQueue = new Array!Message(MESSAGE_LOG_SIZE);
-        resetElectionTimeout();
+        m_entriesQueue = DList!Message();
+        _resetElectionTimeout();
         m_lastHeartbeat = Clock.currTime();
     }
 
@@ -44,14 +46,14 @@ class RaftNode : Node {
         // ...
     }
 
-    bool handleRequest(Message msg) {
+    override bool handleRequest(Message msg) {
         // Handle incoming messages (AppendEntries, RequestVote, etc.)
         // ...
         return true;
     }
 
 private:
-    void startElection() {
+    void _startElection() {
         m_state = RaftState.Candidate;
         m_currentTerm++;
         m_votedFor = this.m_id;
@@ -60,18 +62,15 @@ private:
         // ...
     }
 
-    auto addEntry(Message msg) {
-        if (m_entriesQueue.length == MESSAGE_LOG_SIZE) {
-            m_entriesQueue.popFront();
-            m_entriesQueue.insertBack(msg);
-        } else {
-            m_entriesQueue.insertBack(msg);
-        }
-
+    auto _addEntry(Message msg) {
+        // if (m_entriesQueue.length == MESSAGE_LOG_SIZE) {
+        //     m_entriesQueue.removeFront();
+        // }
+        m_entriesQueue.insertBack(msg);
         return true;
     }
 
-    auto vote() {
+    auto _vote() {
         // Implement voting logic
         // ...
     }
@@ -82,7 +81,7 @@ private:
 
     void _probeElectionTimeout() {
         if (Clock.currTime() - m_lastHeartbeat > m_electionTimeout) {
-            startElection();
+            _startElection();
         }
     }
 
@@ -100,9 +99,9 @@ class ServerNode : RaftNode {
     void run() {
         // Server-specific run logic
         // ...
-        while (True){
+        while (true){
             this.raftIteration();
-            sleep(1.milliseconds);
+            Thread.sleep(100.msecs);
         }
     }
 }

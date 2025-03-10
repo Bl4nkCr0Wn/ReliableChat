@@ -46,31 +46,38 @@ import globals;
 unittest {
     const NodeId[2] CLIENT_IDS = [6, 7];
     const NodeId[SERVER_NODES_AMOUNT] SERVER_IDS = [1, 2, 3, 4, 5];
- 
+
     SharedMemoryCommunicator communicator = new SharedMemoryCommunicator(SERVER_IDS ~ CLIENT_IDS);
     ServerNode[SERVER_NODES_AMOUNT] servers;
     for (uint i = 0; i < SERVER_NODES_AMOUNT; i++){
         servers[i] = new ServerNode(SERVER_IDS[i], communicator);
     }
 
-    ClientNode[2] clients = [new ClientNode(CLIENT_IDS[0], communicator),
-                             new ClientNode(CLIENT_IDS[1], communicator)];
-
+    // ClientNode[2] clients = [new ClientNode(CLIENT_IDS[0], communicator),
+    //                          new ClientNode(CLIENT_IDS[1], communicator)];
+    writeln("Servers: ", servers);
     foreach (server; servers) {
         server.run();
     }
+
+    assert(1 == 2, "Test failed");
     // ChatServer[RAFT_NODES] servers;
     // for (uint i = 0; i < servers.length; i++){
     //     servers[i] = new ChatServer(i);
-	// }
+    // }
 
     // ChatClient[] clients = [new ChatClient(6), new ChatClient(7)];
     
-	// auto node = new RaftNode("Node1");
+    // auto node = new RaftNode("Node1");
     // assert(node.state == RaftNode.State.Follower);
     // node.startElection();
     // assert(node.state == RaftNode.State.Candidate);
 
     // auto pbftNode = new PBFTNode("PBFT1", ["PBFT2", "PBFT3", "PBFT4"]);
     // pbftNode.sendPrepare("Test Message");
+    
+}
+
+void main(){
+    writeln("Hello, World!");
 }

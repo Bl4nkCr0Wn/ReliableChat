@@ -1,8 +1,9 @@
 module communication;
 
+import std.stdio;
+import std.container.dlist;
+
 import globals;
-import std.container.array: Array;
-import std.container: HashMap;
 
 interface ICommunicator {
 	// Transfering the message given by fields
@@ -13,32 +14,28 @@ interface ICommunicator {
 }
 
 class SharedMemoryCommunicator : ICommunicator {
-    HashMap!(NodeId, Array!Message) m_memoryMap;
+    DList!Message[NodeId] m_memoryMap;
 
-    this(NodeId[] peers) {
+    this(const NodeId[] peers) {
         foreach (peer; peers) {
-            m_memoryMap[peer] = new Array!Message(MESSAGE_LOG_SIZE);
+            m_memoryMap[peer] = DList!Message();
         }
     }
 
     bool send(Message msg) {
-		if (m_memoryMap[msg.dstId].length >= MESSAGE_LOG_SIZE) {
-			return false;
-		}
-
-        writeln("[", id, "] Sending message: ", msg);
+        writeln("[", msg.srcId, "] Sending message: ", msg);
 		m_memoryMap[msg.dstId].insertBack(msg);
         return true;
     }
 
 	// Note: requires supplying message with dstId of interest (caller nodeId)
     bool recv(ref Message o_msg) {
-		if (m_memoryMap[o_msg.dstId].empty) 
+		if (m_memoryMap[o_msg.dstId].empty()) 
 			return false;
 		
 		o_msg = m_memoryMap[o_msg.dstId].front;
 		writeln("[", o_msg.dstId, "] Receiving message: ", o_msg);
-		m_memoryMap[o_msg.dstId].popFront;
+        m_memoryMap[o_msg.dstId].removeFront();
 		return true;
     }
 }
