@@ -5,6 +5,7 @@ import core.thread;
 import std.datetime;
 import std.random;
 import std.container.dlist;
+import std.json;
 
 import globals;
 import communication;
@@ -19,16 +20,16 @@ class Node {
         this.m_communicator = communicator;
     }
 
-    abstract bool handleRequest(Message msg);
+    abstract bool handleRequest();
 }
 
 // RAFT Implementation
 class RaftNode : Node {
     enum RaftState { Follower, Candidate, Leader }
     private RaftState m_state = RaftState.Follower;
-    private uint m_currentTerm = 0;
-    private NodeId m_votedFor = 0;
-    private NodeId m_currentLeader = INVALID_LEADER_ID;
+    private int m_currentTerm = -1;
+    private NodeId m_votedFor = INVALID_NODE_ID;
+    private NodeId m_currentLeader = INVALID_NODE_ID;
     private DList!Message m_entriesQueue;
     private Duration m_electionTimeout;
     private SysTime m_lastHeartbeat;
@@ -46,9 +47,38 @@ class RaftNode : Node {
         // ...
     }
 
-    override bool handleRequest(Message msg) {
+    override bool handleRequest() {
         // Handle incoming messages (AppendEntries, RequestVote, etc.)
-        // ...
+        Message receivedMsg = {
+            dstId: this.m_id
+        };
+
+        if (!m_communicator.recv(receivedMsg)) {
+            return false;
+        }
+
+        switch (receivedMsg.type) {
+            case Message.Type.RAFT.AppendEntries:
+                // AppendEntries logic
+                // ...
+                break;
+            case Message.Type.RAFT.AppendEntriesResponse:
+                // AppendEntriesResponse logic
+                // ...
+                break;
+            case Message.Type.RAFT.RequestVote:
+                // RequestVote logic
+                // ...
+                break;
+            case Message.Type.RAFT.RequestVoteResponse:
+                // RequestVoteResponse logic
+                // ...
+                break;
+
+            default:
+                break;
+        }
+
         return true;
     }
 
@@ -58,8 +88,20 @@ private:
         m_currentTerm++;
         m_votedFor = this.m_id;
         writeln("[", m_id, "] Started election for term ", m_currentTerm);
-        // Send RequestVote RPCs to other nodes
-        // ...
+        Message requestVoteMsg = {
+            srcId: this.m_id,
+            dstId: 0, // to fill per peer
+            type: Message.Type.RAFT.RequestVote,
+            content: JSONValue(["candidateId" : this.m_id, "term" : m_currentTerm])
+        };
+
+        foreach (peer; SERVER_IDS) {
+            if (peer != this.m_id) {
+                requestVoteMsg.dstId = peer;
+                m_communicator.send(requestVoteMsg);// TODO : danger! it might not copy as expected and cause havoc
+                //requestVoteMsg = requestVoteMsg.dup;
+            }
+        }        
     }
 
     auto _addEntry(Message msg) {
@@ -76,12 +118,13 @@ private:
     }
 
     void _resetElectionTimeout() {
-        m_electionTimeout = dur!("seconds")(uniform(10, 30));
+        m_electionTimeout = dur!("seconds")(uniform(1, 3));
     }
 
     void _probeElectionTimeout() {
         if (Clock.currTime() - m_lastHeartbeat > m_electionTimeout) {
             _startElection();
+            _resetElectionTimeout();
         }
     }
 
@@ -99,9 +142,31 @@ class ServerNode : RaftNode {
     void run() {
         // Server-specific run logic
         // ...
+        Fiber raftFiber = new Fiber({
+            SysTime lastTime = Clock.currTime();
+            while (true) {
+                if (Clock.currTime() - lastTime > 100.msecs){
+                    this.raftIteration();
+                    lastTime = Clock.currTime();
+                }
+                Fiber.yield();
+            }
+        });
+
+        Fiber serverFiber = new Fiber({
+            SysTime lastTime = Clock.currTime();
+            while (true) {
+                if (Clock.currTime() - lastTime > 50.msecs){
+                    while (this.handleRequest()) {}
+                    lastTime = Clock.currTime();
+                }
+                Fiber.yield();
+            }
+        });
+
         while (true){
-            this.raftIteration();
-            Thread.sleep(100.msecs);
+            raftFiber.call();
+            serverFiber.call();
         }
     }
 }

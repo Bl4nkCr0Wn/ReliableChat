@@ -23,8 +23,10 @@ class SharedMemoryCommunicator : ICommunicator {
     }
 
     bool send(Message msg) {
+        static int messageUniqueId = 0;
+        msg.messageId = messageUniqueId++;
         writeln("[", msg.srcId, "] Sending message: ", msg);
-		m_memoryMap[msg.dstId].insertBack(msg);
+        m_memoryMap[msg.dstId].insertBack(msg);
         return true;
     }
 
