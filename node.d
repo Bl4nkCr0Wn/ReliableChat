@@ -61,18 +61,25 @@ class RaftNode : Node {
             case Message.Type.RAFT.AppendEntries:
                 // AppendEntries logic
                 // ...
+                _receiveHeartbeat();
+                _addEntry(receivedMsg);
                 break;
             case Message.Type.RAFT.AppendEntriesResponse:
                 // AppendEntriesResponse logic
                 // ...
                 break;
             case Message.Type.RAFT.RequestVote:
-                _vote(receivedMsg.content["candidateId"].get!NodeId,
-                     receivedMsg.content["term"].get!int);
+                _voteRequest(receivedMsg.content["candidateId"].get!NodeId,
+                     receivedMsg.content["term"].get!int, 
+                     receivedMsg.content["lastLogIndex"].get!uint,
+                     receivedMsg.content["lastLogTerm"].get!int);
                 break;
             case Message.Type.RAFT.RequestVoteResponse:
-                // RequestVoteResponse logic
-                // ...
+                _voteResponse(receivedMsg.content["candidateId"].get!NodeId,
+                     receivedMsg.content["term"].get!int,
+                     receivedMsg.content["lastLogIndex"].get!uint,
+                     receivedMsg.content["lastLogTerm"].get!int,
+                     receivedMsg.content["voteGranted"].get!bool);
                 break;
 
             default:
@@ -103,18 +110,30 @@ private:
                 m_communicator.send(requestVoteMsg);// TODO : danger! it might not copy as expected and cause havoc
                 //requestVoteMsg = requestVoteMsg.dup;
             }
-        }        
+        }
+        _voteResponse.votedForMe = 1;
     }
 
     auto _addEntry(Message msg) {
-        // if (m_entriesQueue.length == MESSAGE_LOG_SIZE) {
-        //     m_entriesQueue.removeFront();
-        // }
-        m_entriesQueue.insertBack(msg);
+        if (m_currentLeader == this.m_id && m_state == RaftState.Leader) {
+            foreach (peer; SERVER_IDS) {
+                if (peer != this.m_id) {
+                    msg.dstId = peer;
+                    m_communicator.send(msg);
+                }
+            }
+        } else {
+            m_currentLeader = msg.content["leaderId"].get!NodeId;
+            m_currentTerm = msg.content["term"].get!int;
+            m_entriesQueue.insertBack(msg);
+            Message entryResponse = { }TODO
+        }
+
         return true;
     }
 
-    bool _vote(NodeId candidateId, int term) {
+    bool _voteRequest(NodeId candidateId, int term, uint lastLogIndex, int lastLogTerm) {
+        //TODO: use last two fields for log comparison
         bool voteGranted = true;
         if (term < m_currentTerm || m_state != RaftState.Follower) {
             voteGranted = false;
@@ -127,9 +146,36 @@ private:
             dstId: candidateId,
             type: Message.Type.RAFT.RequestVoteResponse,
             content: JSONValue(["candidateId" : candidateId, "term" : term,
+                                "lastLogIndex" : lastLogIndex, "lastLogTerm" : lastLogTerm,
                                     "voteGranted" : voteGranted])
         };
         m_communicator.send(response);
+        return true;
+    }
+
+    bool _voteResponse(NodeId candidateId, int term, uint lastLogIndex, int lastLogTerm, bool voteGranted) {
+        static uint votedForMe = 0;
+        if (term < m_currentTerm || m_state != RaftState.Candidate || candidateId != this.m_id) {
+            return false;
+        }
+
+        if (voteGranted) {
+            votedForMe++;
+            if (votedForMe > RAFT_NODES / 2) {
+                m_state = RaftState.Leader;
+                m_currentLeader = this.m_id;
+                writeln("[", m_id, "] Became leader for term ", m_currentTerm);
+                Message response = {
+                    srcId: this.m_id,
+                    dstId: 0, // to fill per peer
+                    type: Message.Type.RAFT.AppendEntries,
+                    content: JSONValue(["leaderId" : this.m_id, "term" : m_currentTerm,
+                                        "lastLogIndex" : lastLogIndex+1, "lastLogTerm" : m_currentTerm])
+                };
+                // Announce new leader step-up
+                this._addEntry(response);
+            }
+        }
         return true;
     }
 
