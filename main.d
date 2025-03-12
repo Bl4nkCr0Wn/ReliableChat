@@ -41,25 +41,27 @@ import globals;
 // Unittest
 unittest {
     SharedMemoryCommunicator communicator = new SharedMemoryCommunicator(SERVER_IDS ~ CLIENT_IDS);
-    ServerNode[SERVER_NODES_AMOUNT] servers;
+    LocalServerNode[SERVER_NODES_AMOUNT] servers;
     for (uint i = 0; i < SERVER_NODES_AMOUNT; i++){
-        servers[i] = new ServerNode(SERVER_IDS[i], communicator);
+        servers[i] = new LocalServerNode(SERVER_IDS[i], communicator);
     }
 
     // ClientNode[2] clients = [new ClientNode(CLIENT_IDS[0], communicator),
     //                          new ClientNode(CLIENT_IDS[1], communicator)];
-    writeln("Servers: ", servers);
-    Thread[SERVER_NODES_AMOUNT] serverThreads;
-    foreach (i, server; servers) {
-        writeln("Starting server ", i);
-        serverThreads[i] = new Thread({
-            server.run();
-        });
-        serverThreads[i].start();
-    }
+    Fiber[SERVER_NODES_AMOUNT] serverFibers;
+    serverFibers[0] = new Fiber({ servers[0].run(); });
+    serverFibers[1] = new Fiber({ servers[1].run(); });
+    serverFibers[2] = new Fiber({ servers[2].run(); });
+    serverFibers[3] = new Fiber({ servers[3].run(); });
+    serverFibers[4] = new Fiber({ servers[4].run(); });
 
-    foreach (thread; serverThreads) {
-        thread.join();
+    import std.random;
+    int[] runOrder = [0, 1, 2, 3, 4];
+    while (true){
+        runOrder.randomShuffle();
+        foreach (i; runOrder){
+            serverFibers[i].call();
+        }
     }
 
     assert(1 == 2, "Test failed");

@@ -15,27 +15,30 @@ alias NodeId = int;
 enum NodeId INVALID_NODE_ID = -1;
 
 struct Message {
-    struct Type {
-        enum RAFT : _MessageType { 
-            AppendEntries = 1, 
-            AppendEntriesResponse,
-            RequestVote, 
-            RequestVoteResponse
-        }
-
-        enum PBFT : _MessageType {
-            PrePrepare = 10,
-            Prepare,
-            Commit,
-            Reply
-        }
-    } alias _MessageType = byte;
+    enum Type : byte {
+        RaftAppendEntries = 1, 
+        RaftAppendEntriesResponse,
+        RaftRequestVote, 
+        RaftRequestVoteResponse,
+        
+        PbftPrePrepare = 10,
+        PbftPrepare,
+        PbftCommit,
+        PbftReply,
+    }
     
     int messageId = -1;
     NodeId srcId = INVALID_NODE_ID;
     NodeId dstId = INVALID_NODE_ID;
-    _MessageType type;
+    Type type;
     JSONValue content;
+
+    // Custom toString overload
+    void toString(scope void delegate(const(char)[]) sink) const
+    {
+        import std.format : formattedWrite;
+        formattedWrite(sink, "[MessageId %d | src %d | dst %d | type %s] %s", messageId, srcId, dstId, type, content);
+    }
 }
 
 const NodeId[2] CLIENT_IDS = [6, 7];

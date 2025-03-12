@@ -57,24 +57,25 @@ class RaftNode : Node {
             return false;
         }
 
+        writeln("[", this.m_id, "] Handling message: ", receivedMsg);
         switch (receivedMsg.type) {
-            case Message.Type.RAFT.AppendEntries:
+            case Message.Type.RaftAppendEntries:
                 // AppendEntries logic
                 // ...
                 _receiveHeartbeat();
                 _addEntry(receivedMsg);
                 break;
-            case Message.Type.RAFT.AppendEntriesResponse:
+            case Message.Type.RaftAppendEntriesResponse:
                 // AppendEntriesResponse logic
                 // ...
                 break;
-            case Message.Type.RAFT.RequestVote:
+            case Message.Type.RaftRequestVote:
                 _voteRequest(receivedMsg.content["candidateId"].get!NodeId,
                      receivedMsg.content["term"].get!int, 
                      receivedMsg.content["lastLogIndex"].get!uint,
                      receivedMsg.content["lastLogTerm"].get!int);
                 break;
-            case Message.Type.RAFT.RequestVoteResponse:
+            case Message.Type.RaftRequestVoteResponse:
                 _voteResponse(receivedMsg.content["candidateId"].get!NodeId,
                      receivedMsg.content["term"].get!int,
                      receivedMsg.content["lastLogIndex"].get!uint,
@@ -113,7 +114,7 @@ private:
         Message requestVoteMsg = {
             srcId: this.m_id,
             dstId: 0, // to fill per peer
-            type: Message.Type.RAFT.RequestVote,
+            type: Message.Type.RaftRequestVote,
             content: JSONValue(["candidateId" : this.m_id, "term" : m_currentTerm,
                                 "lastLogIndex" : _getMyLastLogIndex(),
                                 "lastLogTerm" : _getMyLastLogTerm()])
@@ -143,7 +144,7 @@ private:
             m_entriesQueue.insertBack(msg);
             msg.srcId = this.m_id;
             msg.dstId = m_currentLeader;
-            msg.type = Message.Type.RAFT.AppendEntriesResponse;
+            msg.type = Message.Type.RaftAppendEntriesResponse;
             writeln("[", this.m_id, "] Follower appending entry: ", msg);
             m_communicator.send(msg);
         }
@@ -163,7 +164,7 @@ private:
         Message response = {
             srcId: this.m_id,
             dstId: candidateId,
-            type: Message.Type.RAFT.RequestVoteResponse,
+            type: Message.Type.RaftRequestVoteResponse,
             content: JSONValue(["candidateId" : candidateId, "term" : term,
                                 "lastLogIndex" : lastLogIndex, "lastLogTerm" : lastLogTerm,
                                     "voteGranted" : voteGranted])
@@ -188,7 +189,7 @@ private:
                 Message response = {
                     srcId: this.m_id,
                     dstId: 0, // to fill per peer
-                    type: Message.Type.RAFT.AppendEntries,
+                    type: Message.Type.RaftAppendEntries,
                     content: JSONValue(["leaderId" : this.m_id, "term" : m_currentTerm,
                                         "lastLogIndex" : lastLogIndex+1, "lastLogTerm" : m_currentTerm])
                 };
@@ -204,9 +205,9 @@ private:
     }
 
     void _probeElectionTimeout() {
-        if (Clock.currTime() - m_lastHeartbeat > m_electionTimeout) {
-            _startElection();
+        if (this.m_state == RaftState.Follower && Clock.currTime() - m_lastHeartbeat > m_electionTimeout) {
             _resetElectionTimeout();
+            _startElection();
         }
     }
 
@@ -216,39 +217,26 @@ private:
     }
 }
 
-class ServerNode : RaftNode {
+class LocalServerNode : RaftNode {
     this(NodeId id, ICommunicator communicator){
         super(id, communicator);
     }
 
+    /** 
+     * Local server runs as local fiber and handles only up to handful of messages + raft iteration if necessary before yielding
+     */
     void run() {
-        // Server-specific run logic
-        // ...
-        Fiber raftFiber = new Fiber({
-            SysTime lastTime = Clock.currTime();
-            while (true) {
-                if (Clock.currTime() - lastTime > 100.msecs){
-                    this.raftIteration();
-                    lastTime = Clock.currTime();
-                }
-                Fiber.yield();
-            }
-        });
-
-        Fiber serverFiber = new Fiber({
-            SysTime lastTime = Clock.currTime();
-            while (true) {
-                if (Clock.currTime() - lastTime > 50.msecs){
-                    while (this.handleRequest()) {}
-                    lastTime = Clock.currTime();
-                }
-                Fiber.yield();
-            }
-        });
-
+        writeln("[", this.m_id, "] Running");
+        SysTime lastRaftTime = Clock.currTime();
+        SysTime requestHandleStartTime;
         while (true){
-            raftFiber.call();
-            serverFiber.call();
+            if (Clock.currTime() - lastRaftTime > 100.msecs){
+                this.raftIteration();
+                lastRaftTime = Clock.currTime();
+            }
+
+            for (int i = uniform(0, 5); i < 5 && this.handleRequest(); i++) {}
+            Fiber.yield();
         }
     }
 }
