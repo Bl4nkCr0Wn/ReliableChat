@@ -90,6 +90,21 @@ class RaftNode : Node {
     }
 
 private:
+
+    uint _getMyLastLogIndex() {
+        if (m_entriesQueue.empty()) {
+            return 0;
+        }
+        return m_entriesQueue.back().content["logIndex"].get!uint;
+    }
+
+    int _getMyLastLogTerm() {
+        if (m_entriesQueue.empty()) {
+            return 0;
+        }
+        return m_entriesQueue.back().content["logTerm"].get!int;
+    }
+
     void _startElection() {
         m_state = RaftState.Candidate;
         m_currentTerm++;
@@ -100,8 +115,8 @@ private:
             dstId: 0, // to fill per peer
             type: Message.Type.RAFT.RequestVote,
             content: JSONValue(["candidateId" : this.m_id, "term" : m_currentTerm,
-                                "lastLogIndex" : m_entriesQueue.back().content["logIndex"].get!uint,
-                                "lastLogTerm" : m_entriesQueue.back().content["logTerm"].get!int])
+                                "lastLogIndex" : _getMyLastLogIndex(),
+                                "lastLogTerm" : _getMyLastLogTerm()])
         };
 
         foreach (peer; SERVER_IDS) {
@@ -111,11 +126,11 @@ private:
                 //requestVoteMsg = requestVoteMsg.dup;
             }
         }
-        _voteResponse.votedForMe = 1;
     }
 
-    auto _addEntry(Message msg) {
+    bool _addEntry(Message msg) {
         if (m_currentLeader == this.m_id && m_state == RaftState.Leader) {
+            writeln("[", this.m_id, "] Leader appending entry: ", msg);
             foreach (peer; SERVER_IDS) {
                 if (peer != this.m_id) {
                     msg.dstId = peer;
@@ -126,7 +141,11 @@ private:
             m_currentLeader = msg.content["leaderId"].get!NodeId;
             m_currentTerm = msg.content["term"].get!int;
             m_entriesQueue.insertBack(msg);
-            Message entryResponse = { }TODO
+            msg.srcId = this.m_id;
+            msg.dstId = m_currentLeader;
+            msg.type = Message.Type.RAFT.AppendEntriesResponse;
+            writeln("[", this.m_id, "] Follower appending entry: ", msg);
+            m_communicator.send(msg);
         }
 
         return true;
@@ -154,7 +173,7 @@ private:
     }
 
     bool _voteResponse(NodeId candidateId, int term, uint lastLogIndex, int lastLogTerm, bool voteGranted) {
-        static uint votedForMe = 0;
+        static uint votedForMe = 1;
         if (term < m_currentTerm || m_state != RaftState.Candidate || candidateId != this.m_id) {
             return false;
         }
@@ -163,6 +182,7 @@ private:
             votedForMe++;
             if (votedForMe > RAFT_NODES / 2) {
                 m_state = RaftState.Leader;
+                votedForMe = 1;// candidate always votes for itself
                 m_currentLeader = this.m_id;
                 writeln("[", m_id, "] Became leader for term ", m_currentTerm);
                 Message response = {
