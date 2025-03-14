@@ -26,6 +26,10 @@ class Node {
 // RAFT Implementation
 class RaftNode : Node {
     enum RaftState { Follower, Candidate, Leader }
+    enum Duration HEARTBEAT_DURATION = 1000.msecs;
+    enum uint MIN_ELECTION_TIMEOUT = 2;//seconds
+    enum uint MAX_ELECTION_TIMEOUT = 8;//seconds
+
     private RaftState m_state = RaftState.Follower;
     private int m_currentTerm = -1;
     private NodeId m_votedFor = INVALID_NODE_ID;
@@ -46,7 +50,7 @@ class RaftNode : Node {
 
         if (m_state == RaftState.Leader) {
             // send heartbeat
-            if (m_lastHeartbeat - Clock.currTime() > 50.msecs) {
+            if (Clock.currTime() - m_lastHeartbeat > HEARTBEAT_DURATION) {
                 _sendHeartbeat();
             }
         }
@@ -144,6 +148,7 @@ private:
                                 "content" : JSONValue("heartbeat")])
         };
         this._addEntry(heartbeat);
+        m_lastHeartbeat = Clock.currTime();
     }
 
     bool _addEntry(Message msg) {
@@ -224,7 +229,7 @@ private:
     }
 
     void _resetElectionTimeout() {
-        m_electionTimeout = dur!("seconds")(uniform(2, 8));
+        m_electionTimeout = dur!("seconds")(uniform(MIN_ELECTION_TIMEOUT, MAX_ELECTION_TIMEOUT));
     }
 
     void _probeElectionTimeout() {
