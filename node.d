@@ -72,14 +72,14 @@ class RaftNode : Node {
             case Message.Type.RaftRequestVote:
                 _voteRequest(receivedMsg.content["candidateId"].get!NodeId,
                      receivedMsg.content["term"].get!int, 
-                     receivedMsg.content["lastLogIndex"].get!uint,
-                     receivedMsg.content["lastLogTerm"].get!int);
+                     receivedMsg.content["logIndex"].get!uint,
+                     receivedMsg.content["logTerm"].get!int);
                 break;
             case Message.Type.RaftRequestVoteResponse:
                 _voteResponse(receivedMsg.content["candidateId"].get!NodeId,
                      receivedMsg.content["term"].get!int,
-                     receivedMsg.content["lastLogIndex"].get!uint,
-                     receivedMsg.content["lastLogTerm"].get!int,
+                     receivedMsg.content["logIndex"].get!uint,
+                     receivedMsg.content["logTerm"].get!int,
                      receivedMsg.content["voteGranted"].get!bool);
                 break;
 
@@ -116,8 +116,8 @@ private:
             dstId: 0, // to fill per peer
             type: Message.Type.RaftRequestVote,
             content: JSONValue(["candidateId" : this.m_id, "term" : m_currentTerm,
-                                "lastLogIndex" : _getMyLastLogIndex(),
-                                "lastLogTerm" : _getMyLastLogTerm()])
+                                "logIndex" : _getMyLastLogIndex(),
+                                "logTerm" : _getMyLastLogTerm()])
         };
 
         foreach (peer; SERVER_IDS) {
@@ -152,7 +152,7 @@ private:
         return true;
     }
 
-    bool _voteRequest(NodeId candidateId, int term, uint lastLogIndex, int lastLogTerm) {
+    bool _voteRequest(NodeId candidateId, int term, uint logIndex, int logTerm) {
         //TODO: use last two fields for log comparison
         bool voteGranted = true;
         if (term < m_currentTerm || m_state != RaftState.Follower) {
@@ -165,15 +165,15 @@ private:
             srcId: this.m_id,
             dstId: candidateId,
             type: Message.Type.RaftRequestVoteResponse,
-            content: JSONValue(["candidateId" : candidateId, "term" : term,
-                                "lastLogIndex" : lastLogIndex, "lastLogTerm" : lastLogTerm,
-                                    "voteGranted" : voteGranted])
+            content: JSONValue(["candidateId" : JSONValue(candidateId), "term" : JSONValue(term),
+                                "logIndex" : JSONValue(logIndex), "logTerm" : JSONValue(logTerm),
+                                "voteGranted" : JSONValue(voteGranted)])
         };
         m_communicator.send(response);
         return true;
     }
 
-    bool _voteResponse(NodeId candidateId, int term, uint lastLogIndex, int lastLogTerm, bool voteGranted) {
+    bool _voteResponse(NodeId candidateId, int term, uint logIndex, int logTerm, bool voteGranted) {
         static uint votedForMe = 1;
         if (term < m_currentTerm || m_state != RaftState.Candidate || candidateId != this.m_id) {
             return false;
@@ -191,7 +191,7 @@ private:
                     dstId: 0, // to fill per peer
                     type: Message.Type.RaftAppendEntries,
                     content: JSONValue(["leaderId" : this.m_id, "term" : m_currentTerm,
-                                        "lastLogIndex" : lastLogIndex+1, "lastLogTerm" : m_currentTerm])
+                                        "logIndex" : logIndex+1, "logTerm" : m_currentTerm])
                 };
                 // Announce new leader step-up
                 this._addEntry(response);
