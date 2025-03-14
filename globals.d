@@ -28,16 +28,16 @@ struct Message {
     }
     
     int messageId = -1;
+    Type type;
     NodeId srcId = INVALID_NODE_ID;
     NodeId dstId = INVALID_NODE_ID;
-    Type type;
     JSONValue content;
 
     // Custom toString overload
     void toString(scope void delegate(const(char)[]) sink) const
     {
         import std.format : formattedWrite;
-        formattedWrite(sink, "[MessageId %d | src %d | dst %d | type %s] %s", messageId, srcId, dstId, type, content);
+        formattedWrite(sink, "[MessageId %d | type %s | src %d | dst %d ] %s", messageId, type, srcId, dstId, content);
     }
 }
 

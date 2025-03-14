@@ -43,6 +43,13 @@ class RaftNode : Node {
 
     void raftIteration() {
         _probeElectionTimeout();
+
+        if (m_state == RaftState.Leader) {
+            // send heartbeat
+            if (m_lastHeartbeat - Clock.currTime() > 50.msecs) {
+                _sendHeartbeat();
+            }
+        }
         // Other periodic tasks
         // ...
     }
@@ -57,27 +64,24 @@ class RaftNode : Node {
             return false;
         }
 
-        writeln("[", this.m_id, "] Handling message: ", receivedMsg);
         switch (receivedMsg.type) {
             case Message.Type.RaftAppendEntries:
-                // AppendEntries logic
-                // ...
                 _receiveHeartbeat();
                 _addEntry(receivedMsg);
                 break;
+
             case Message.Type.RaftAppendEntriesResponse:
-                // AppendEntriesResponse logic
-                // ...
+                _addEntryResponse(receivedMsg);
                 break;
+
             case Message.Type.RaftRequestVote:
                 _voteRequest(receivedMsg.content["candidateId"].get!NodeId,
-                     receivedMsg.content["term"].get!int, 
                      receivedMsg.content["logIndex"].get!uint,
                      receivedMsg.content["logTerm"].get!int);
                 break;
+
             case Message.Type.RaftRequestVoteResponse:
                 _voteResponse(receivedMsg.content["candidateId"].get!NodeId,
-                     receivedMsg.content["term"].get!int,
                      receivedMsg.content["logIndex"].get!uint,
                      receivedMsg.content["logTerm"].get!int,
                      receivedMsg.content["voteGranted"].get!bool);
@@ -115,18 +119,31 @@ private:
             srcId: this.m_id,
             dstId: 0, // to fill per peer
             type: Message.Type.RaftRequestVote,
-            content: JSONValue(["candidateId" : this.m_id, "term" : m_currentTerm,
-                                "logIndex" : _getMyLastLogIndex(),
-                                "logTerm" : _getMyLastLogTerm()])
+            content: JSONValue(["candidateId" : this.m_id,
+                                "logIndex" : _getMyLastLogIndex()+1,
+                                "logTerm" : m_currentTerm])
         };
 
         foreach (peer; SERVER_IDS) {
             if (peer != this.m_id) {
                 requestVoteMsg.dstId = peer;
-                m_communicator.send(requestVoteMsg);// TODO : danger! it might not copy as expected and cause havoc
-                //requestVoteMsg = requestVoteMsg.dup;
+                m_communicator.send(requestVoteMsg);
             }
         }
+    }
+
+    void _sendHeartbeat() {
+        // Send heartbeat to followers
+        Message heartbeat = {
+            srcId: this.m_id,
+            dstId: 0, // to fill per peer
+            type: Message.Type.RaftAppendEntries,
+            content: JSONValue(["leaderId" : JSONValue(this.m_id),
+                                "logIndex" : JSONValue(_getMyLastLogIndex+1),
+                                "logTerm" : JSONValue(m_currentTerm),
+                                "content" : JSONValue("heartbeat")])
+        };
+        this._addEntry(heartbeat);
     }
 
     bool _addEntry(Message msg) {
@@ -140,11 +157,12 @@ private:
             }
         } else {
             m_currentLeader = msg.content["leaderId"].get!NodeId;
-            m_currentTerm = msg.content["term"].get!int;
+            m_currentTerm = msg.content["logTerm"].get!int;
             m_entriesQueue.insertBack(msg);
             msg.srcId = this.m_id;
             msg.dstId = m_currentLeader;
             msg.type = Message.Type.RaftAppendEntriesResponse;
+            msg.content["origMessageId"] = msg.messageId;
             writeln("[", this.m_id, "] Follower appending entry: ", msg);
             m_communicator.send(msg);
         }
@@ -152,10 +170,21 @@ private:
         return true;
     }
 
-    bool _voteRequest(NodeId candidateId, int term, uint logIndex, int logTerm) {
+    bool _addEntryResponse(Message msg) {
+        static uint[int] messageAckCount;
+        messageAckCount[msg.content["origMessageId"].get!int]++;
+        if (messageAckCount[msg.content["origMessageId"].get!int] >= (RAFT_NODES / 2)) {
+            // Entry is committed
+            this.m_entriesQueue.insertBack(msg);
+        }
+        
+        return true;
+    }
+
+    bool _voteRequest(NodeId candidateId, uint logIndex, int logTerm) {
         //TODO: use last two fields for log comparison
         bool voteGranted = true;
-        if (term < m_currentTerm || m_state != RaftState.Follower) {
+        if (logTerm < m_currentTerm || m_state != RaftState.Follower) {
             voteGranted = false;
         } else {
             m_votedFor = candidateId;
@@ -165,17 +194,18 @@ private:
             srcId: this.m_id,
             dstId: candidateId,
             type: Message.Type.RaftRequestVoteResponse,
-            content: JSONValue(["candidateId" : JSONValue(candidateId), "term" : JSONValue(term),
-                                "logIndex" : JSONValue(logIndex), "logTerm" : JSONValue(logTerm),
+            content: JSONValue(["candidateId" : JSONValue(candidateId),
+                                "logIndex" : JSONValue(logIndex), 
+                                "logTerm" : JSONValue(logTerm),
                                 "voteGranted" : JSONValue(voteGranted)])
         };
         m_communicator.send(response);
         return true;
     }
 
-    bool _voteResponse(NodeId candidateId, int term, uint logIndex, int logTerm, bool voteGranted) {
+    bool _voteResponse(NodeId candidateId, uint logIndex, int logTerm, bool voteGranted) {
         static uint votedForMe = 1;
-        if (term < m_currentTerm || m_state != RaftState.Candidate || candidateId != this.m_id) {
+        if (logTerm < m_currentTerm || m_state != RaftState.Candidate || candidateId != this.m_id) {
             return false;
         }
 
@@ -186,26 +216,19 @@ private:
                 votedForMe = 1;// candidate always votes for itself
                 m_currentLeader = this.m_id;
                 writeln("[", m_id, "] Became leader for term ", m_currentTerm);
-                Message response = {
-                    srcId: this.m_id,
-                    dstId: 0, // to fill per peer
-                    type: Message.Type.RaftAppendEntries,
-                    content: JSONValue(["leaderId" : this.m_id, "term" : m_currentTerm,
-                                        "logIndex" : logIndex+1, "logTerm" : m_currentTerm])
-                };
                 // Announce new leader step-up
-                this._addEntry(response);
+                this._sendHeartbeat();
             }
         }
         return true;
     }
 
     void _resetElectionTimeout() {
-        m_electionTimeout = dur!("seconds")(uniform(1, 3));
+        m_electionTimeout = dur!("seconds")(uniform(2, 8));
     }
 
     void _probeElectionTimeout() {
-        if (this.m_state == RaftState.Follower && Clock.currTime() - m_lastHeartbeat > m_electionTimeout) {
+        if (this.m_state != RaftState.Leader && Clock.currTime() - m_lastHeartbeat > m_electionTimeout) {
             _resetElectionTimeout();
             _startElection();
         }
