@@ -267,6 +267,14 @@ class LocalServerNode : RaftNode {
             Fiber.yield();
         }
     }
+
+    void runRaftIteration() {
+        this.raftIteration();
+    }
+
+    void runHandleMessageOnce(){
+        this.handleRequest();
+    }
 }
 
 class ClientNode : Node {

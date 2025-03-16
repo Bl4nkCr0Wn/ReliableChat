@@ -42,26 +42,6 @@ class SharedMemoryCommunicator : ICommunicator {
     }
 }
 
-unittest {
-    class RaftTesterCommunicator : SharedMemoryCommunicator {
-        Message[int] recvMessageMap;
-
-        this(NodeId[] peers){
-            super(peers);
-        }
-
-        override bool recv(ref Message msg) {
-            bool res = super.recv(msg);
-            Message recvMsgCopy = msg;
-            recvMessageMap[msg.messageId] = recvMsgCopy;
-            return res;
-        }
-
-        override bool send(Message msg) {
-            return super.send(msg);
-        }
-    }
-}
 // PBFTCommunicator : SharedMemoryCommunicator
 //// PBFT Implementation
 //class PBFTCommunicator : ICommunicator {

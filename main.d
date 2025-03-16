@@ -33,7 +33,7 @@ unittest {
         for (uint i = 0; i < SERVER_NODES_AMOUNT; i++){
             servers[i] = new LocalServerNode(SERVER_IDS[i], communicator);
         }
-
+        
         // ClientNode[2] clients = [new ClientNode(CLIENT_IDS[0], communicator),
         //                          new ClientNode(CLIENT_IDS[1], communicator)];
         Fiber[SERVER_NODES_AMOUNT] serverFibers;
