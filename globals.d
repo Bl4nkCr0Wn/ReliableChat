@@ -7,8 +7,8 @@ enum int RAFT_TIMEOUT = 1500;  // in ms
 enum int RAFT_NODES = 5;        // Minimum 5 nodes for RAFT 2 crash failures
 enum int PBFT_NODES = 4;       // Minimum 4 nodes for PBFT
 
-import std.algorithm.comparison: max;
-enum uint SERVER_NODES_AMOUNT = max(RAFT_NODES, PBFT_NODES);
+// import std.algorithm.comparison: max;
+// enum uint SERVER_NODES_AMOUNT = max(RAFT_NODES, PBFT_NODES);
 enum uint MESSAGE_LOG_SIZE = 64; // How much of a history the system keeps
 
 alias NodeId = int;
@@ -40,6 +40,3 @@ struct Message {
         formattedWrite(sink, "[MessageId %d | type %s | src %d | dst %d ] %s", messageId, type, srcId, dstId, content);
     }
 }
-
-const NodeId[2] CLIENT_IDS = [6, 7];
-const NodeId[SERVER_NODES_AMOUNT] SERVER_IDS = [1, 2, 3, 4, 5];

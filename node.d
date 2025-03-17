@@ -20,7 +20,7 @@ class Node {
         this.m_communicator = communicator;
     }
 
-    abstract bool handleRequest();
+    protected abstract bool handleRequest();
 }
 
 // RAFT Implementation
@@ -30,6 +30,7 @@ class RaftNode : Node {
     enum uint MIN_ELECTION_TIMEOUT = 2;//seconds
     enum uint MAX_ELECTION_TIMEOUT = 8;//seconds
 
+    private NodeId[] m_peers;
     private RaftState m_state = RaftState.Follower;
     private int m_currentTerm = -1;
     private NodeId m_votedFor = INVALID_NODE_ID;
@@ -38,8 +39,9 @@ class RaftNode : Node {
     private Duration m_electionTimeout;
     private SysTime m_lastHeartbeat;
 
-    this(NodeId id, ICommunicator communicator) {
+    this(NodeId id, NodeId[] peers, ICommunicator communicator) {
         super(id, communicator);
+        m_peers = peers;
         m_entriesQueue = DList!Message();
         _resetElectionTimeout();
         m_lastHeartbeat = Clock.currTime();
@@ -128,7 +130,7 @@ private:
                                 "logTerm" : m_currentTerm])
         };
 
-        foreach (peer; SERVER_IDS) {
+        foreach (peer; m_peers) {
             if (peer != this.m_id) {
                 requestVoteMsg.dstId = peer;
                 m_communicator.send(requestVoteMsg);
@@ -154,7 +156,7 @@ private:
     bool _addEntry(Message msg) {
         if (m_currentLeader == this.m_id && m_state == RaftState.Leader) {
             writeln("[", this.m_id, "] Leader appending entry: ", msg);
-            foreach (peer; SERVER_IDS) {
+            foreach (peer; m_peers) {
                 if (peer != this.m_id) {
                     msg.dstId = peer;
                     m_communicator.send(msg);
@@ -246,8 +248,8 @@ private:
 }
 
 class LocalServerNode : RaftNode {
-    this(NodeId id, ICommunicator communicator){
-        super(id, communicator);
+    this(NodeId id, NodeId[] peers, ICommunicator communicator){
+        super(id, peers, communicator);
     }
 
     /** 
@@ -256,7 +258,6 @@ class LocalServerNode : RaftNode {
     void run() {
         writeln("[", this.m_id, "] Running");
         SysTime lastRaftTime = Clock.currTime();
-        SysTime requestHandleStartTime;
         while (true){
             if (Clock.currTime() - lastRaftTime > 100.msecs){
                 this.raftIteration();
@@ -290,6 +291,14 @@ class ClientNode : Node {
     bool send(string text) {
         // Client-specific send logic
         // ...
+        return true;
+    }
+
+    string recv(){
+        return "";
+    }
+
+    override protected bool handleRequest(){
         return true;
     }
 }

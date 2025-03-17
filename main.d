@@ -1,5 +1,6 @@
 import std.stdio;
 import core.thread;
+import std.conv;
 
 import node;
 import communication;
@@ -27,16 +28,31 @@ unittest {
         }
     }
 
-    void testMain() {
-        RaftTesterCommunicator communicator = new RaftTesterCommunicator(SERVER_IDS ~ CLIENT_IDS);
-        LocalServerNode[SERVER_NODES_AMOUNT] servers;
-        for (uint i = 0; i < SERVER_NODES_AMOUNT; i++){
-            servers[i] = new LocalServerNode(SERVER_IDS[i], communicator);
-        }
+    // TODO: should be able to mixin it
+    // basic scenario enables 5 servers and 2 client on local machine by using
+    // servers[i] and clients[i]
+    mixin template raftBasicScenarioSetup(const uint serversAmount, const uint clientsAmount) {
+        enum NodeId[serversAmount] SERVER_IDS = [1, 2, 3, 4, 5];
+        enum NodeId[clientsAmount] CLIENT_IDS = [6, 7];
         
-        // ClientNode[2] clients = [new ClientNode(CLIENT_IDS[0], communicator),
-        //                          new ClientNode(CLIENT_IDS[1], communicator)];
-        Fiber[SERVER_NODES_AMOUNT] serverFibers;
+        RaftTesterCommunicator tester = new RaftTesterCommunicator(SERVER_IDS ~ CLIENT_IDS);
+        
+        LocalServerNode[serversAmount] servers = [
+            new LocalServerNode(SERVER_IDS[0], SERVER_IDS, tester),
+            new LocalServerNode(SERVER_IDS[1], SERVER_IDS, tester),
+            new LocalServerNode(SERVER_IDS[2], SERVER_IDS, tester),
+            new LocalServerNode(SERVER_IDS[3], SERVER_IDS, tester),
+            new LocalServerNode(SERVER_IDS[4], SERVER_IDS, tester)];
+        
+        ClientNode[clientsAmount] clients = [
+            new ClientNode(CLIENT_IDS[0], tester),
+            new ClientNode(CLIENT_IDS[1], tester)];
+    }
+
+    void testMain() {
+        mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+
+        Fiber[RAFT_NODES] serverFibers;
         serverFibers[0] = new Fiber({ servers[0].run(); });
         serverFibers[1] = new Fiber({ servers[1].run(); });
         serverFibers[2] = new Fiber({ servers[2].run(); });
