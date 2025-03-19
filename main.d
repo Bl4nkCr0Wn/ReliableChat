@@ -10,7 +10,7 @@ import globals;
 // Unittest
 unittest {
     class RaftTesterCommunicator : SharedMemoryCommunicator {
-        private Message[int] m_recvMessageMap;
+        private Message[] m_messages;
         private immutable NodeId[] m_servers;
         private immutable NodeId[] m_clients;
         private int m_searchStartIndex;
@@ -25,11 +25,12 @@ unittest {
         override bool recv(ref Message msg) {
             bool res = super.recv(msg);
             Message recvMsgCopy = msg;
-            m_recvMessageMap[msg.messageId] = recvMsgCopy;
+            m_messages ~= recvMsgCopy;
             return res;
         }
 
         override bool send(Message msg) {
+            m_messages ~= msg;
             return super.send(msg);
         }
 
@@ -54,9 +55,9 @@ unittest {
         }
 
         private bool _searchRequestVote(NodeId candidateId) {
-            for (; m_searchStartIndex < m_recvMessageMap.length; m_searchStartIndex++){
-                if (m_recvMessageMap[m_searchStartIndex].type == Message.Type.RaftRequestVote &&
-                    m_recvMessageMap[m_searchStartIndex].srcId == candidateId){
+            for (; m_searchStartIndex < m_messages.length; m_searchStartIndex++){
+                if (m_messages[m_searchStartIndex].type == Message.Type.RaftRequestVote &&
+                    m_messages[m_searchStartIndex].srcId == candidateId){
                     return true;
                 }
             }
@@ -66,10 +67,10 @@ unittest {
 
         private int _countRequestVotesGranted(NodeId candidateId) {
             int count = 0;
-            for (; m_searchStartIndex < m_recvMessageMap.length && (count < m_servers.length/2); m_searchStartIndex++){
-                if (m_recvMessageMap[m_searchStartIndex].type == Message.Type.RaftRequestVoteResponse &&
-                    m_recvMessageMap[m_searchStartIndex].dstId == candidateId &&
-                    m_recvMessageMap[m_searchStartIndex].content["voteGranted"].get!bool){
+            for (; m_searchStartIndex < m_messages.length && (count < m_servers.length/2); m_searchStartIndex++){
+                if (m_messages[m_searchStartIndex].type == Message.Type.RaftRequestVoteResponse &&
+                    m_messages[m_searchStartIndex].dstId == candidateId &&
+                    m_messages[m_searchStartIndex].content["voteGranted"].get!bool){
                     count++;
                 }
             }
@@ -78,11 +79,11 @@ unittest {
         }
 
         private bool _searchHeartbeatSent(NodeId leaderId) {
-            for (; m_searchStartIndex < m_recvMessageMap.length; m_searchStartIndex++){
-                if (m_recvMessageMap[m_searchStartIndex].type == Message.Type.RaftAppendEntries &&
-                    m_recvMessageMap[m_searchStartIndex].srcId == leaderId &&
-                    m_recvMessageMap[m_searchStartIndex].content["leaderId"].get!NodeId == leaderId &&
-                    m_recvMessageMap[m_searchStartIndex].content["content"].get!string == "heartbeat"){
+            for (; m_searchStartIndex < m_messages.length; m_searchStartIndex++){
+                if (m_messages[m_searchStartIndex].type == Message.Type.RaftAppendEntries &&
+                    m_messages[m_searchStartIndex].srcId == leaderId &&
+                    m_messages[m_searchStartIndex].content["leaderId"].get!NodeId == leaderId &&
+                    m_messages[m_searchStartIndex].content["content"].get!string == "heartbeat"){
                     return true;
                 }
             }
@@ -111,38 +112,57 @@ unittest {
             new ClientNode(CLIENT_IDS[1], tester)];
     }
 
-    void _raftLeaderStepUp(S, C)(ref S servers, ref C clients) {
+    void _raftLeaderStepUp(S, C)(ref S servers, ref C clients, NodeId wantedLeaderIdx) {
         import core.thread;
         Thread.sleep(RaftNode.MAX_ELECTION_TIMEOUT.seconds);
 
         // make sure expectedLeader starts election
-        servers[0].runRaftIteration();
+        servers[wantedLeaderIdx].runRaftIteration();
         // handle vote requests
-        foreach (i; 1..servers.length){
-            servers[i].runHandleMessageOnce();
+        foreach (i; 0..servers.length){
+            if (i != wantedLeaderIdx){
+                servers[i].runHandleMessageOnce();
+            }
         }
         // handle vote responses
         foreach (i; 1..servers.length){
-            servers[0].runHandleMessageOnce();
+            servers[wantedLeaderIdx].runHandleMessageOnce();
         }
         // recv heartbeats from leader
-        foreach (i; 1..servers.length){
-            servers[i].runHandleMessageOnce();
-            servers[i].runRaftIteration();
+        foreach (i; 0..servers.length){
+            if (i != wantedLeaderIdx){
+                servers[i].runHandleMessageOnce();
+                servers[i].runRaftIteration();
+            }
         }
     }
 
     void test_happy_raftLeaderStepUp() {
         mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
-        enum expectedLeader = SERVER_IDS[0];
+        enum expectedLeaderIdx = 0;
         
-        _raftLeaderStepUp(servers, clients);
+        _raftLeaderStepUp(servers, clients, expectedLeaderIdx);
 
-        assert(tester.checkForLeaderStepUp(expectedLeader), "Leader step up failed");
+        assert(tester.checkForLeaderStepUp(SERVER_IDS[expectedLeaderIdx]), "Leader step up failed");
+    }
+
+    void test_leaderCrash_newStepUp() {
+        mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+        enum firstExpectedLeaderIdx = 0;
+        enum secondExpectedLeaderIdx = 1;
+        
+        _raftLeaderStepUp(servers, clients, firstExpectedLeaderIdx);
+        assert(tester.checkForLeaderStepUp(SERVER_IDS[firstExpectedLeaderIdx]), "First leader step up failed");
+
+        // crash leader
+        auto serversNoLeader = servers[0 .. firstExpectedLeaderIdx] ~ servers[firstExpectedLeaderIdx + 1 .. $];
+        _raftLeaderStepUp(serversNoLeader, clients, secondExpectedLeaderIdx-1);// -1 because of removed server
+        assert(tester.checkForLeaderStepUp(SERVER_IDS[secondExpectedLeaderIdx]), "Second leader step up failed");
     }
 
     void testMain() {
         test_happy_raftLeaderStepUp();
+        test_leaderCrash_newStepUp();
 
         // mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
 
