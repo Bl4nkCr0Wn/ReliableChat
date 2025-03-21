@@ -137,6 +137,16 @@ unittest {
         }
     }
 
+    void _handleAllOngoingMessages(S)(ref S servers) {
+        bool run = true;
+        while (run) {
+            run = false;
+            foreach (server; servers){
+                run |= server.runHandleMessageOnce();
+            }
+        }
+    }
+
     void test_happy_raftLeaderStepUp() {
         mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
         enum expectedLeaderIdx = 0;
@@ -160,43 +170,57 @@ unittest {
         assert(tester.checkForLeaderStepUp(SERVER_IDS[secondExpectedLeaderIdx]), "Second leader step up failed");
     }
 
-    void testMain() {
-        test_happy_raftLeaderStepUp();
-        test_leaderCrash_newStepUp();
-
-        // mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
-
-        // Fiber[RAFT_NODES] serverFibers;
-        // serverFibers[0] = new Fiber({ servers[0].run(); });
-        // serverFibers[1] = new Fiber({ servers[1].run(); });
-        // serverFibers[2] = new Fiber({ servers[2].run(); });
-        // serverFibers[3] = new Fiber({ servers[3].run(); });
-        // serverFibers[4] = new Fiber({ servers[4].run(); });
-
-        // import std.random;
-        // int[] runOrder = [0, 1, 2, 3, 4];
-        // while (true){
-        //     runOrder.randomShuffle();
-        //     foreach (i; runOrder){
-        //         serverFibers[i].call();
-        //     }
-        // }
-
-        // assert(1 == 2, "Test failed");
-        // ChatServer[RAFT_NODES] servers;
-        // for (uint i = 0; i < servers.length; i++){
-        //     servers[i] = new ChatServer(i);
-        // }
-
-        // ChatClient[] clients = [new ChatClient(6), new ChatClient(7)];
+    void test_noQuorom_noLeaderStepUp(){
+        mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+        enum firstExpectedLeaderIdx = 0;
+        enum secondExpectedLeaderIdx = 1;
         
-        // auto node = new RaftNode("Node1");
-        // assert(node.state == RaftNode.State.Follower);
-        // node.startElection();
-        // assert(node.state == RaftNode.State.Candidate);
+        _raftLeaderStepUp(servers, clients, firstExpectedLeaderIdx);
+        assert(tester.checkForLeaderStepUp(SERVER_IDS[firstExpectedLeaderIdx]), "First leader step up failed");
 
-        // auto pbftNode = new PBFTNode("PBFT1", ["PBFT2", "PBFT3", "PBFT4"]);
-        // pbftNode.sendPrepare("Test Message");
+        // crash 3 servers
+        auto serversNoQuorom = servers[firstExpectedLeaderIdx + 1 .. firstExpectedLeaderIdx + 3];
+        _raftLeaderStepUp(serversNoQuorom, clients, secondExpectedLeaderIdx-1);// -1 because of removed server
+        assert(false == tester.checkForLeaderStepUp(SERVER_IDS[secondExpectedLeaderIdx]), "Second leader step up occured UNEXPECTEDLY");
+    }
+
+    void test_happy_appendEntry() {
+        mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+        enum expectedLeaderIdx = 0;
+        
+        _raftLeaderStepUp(servers, clients, expectedLeaderIdx);
+        assert(tester.checkForLeaderStepUp(SERVER_IDS[expectedLeaderIdx]), "Leader step up failed");
+        _handleAllOngoingMessages(servers);
+        
+        enum text = "Hello, World!";
+        clients[0].send(text);
+
+        // leader will get request, distribute to followers which will send response
+        foreach (server; servers){
+            writeln("Server");
+            server.runHandleMessageOnce();
+        }
+
+        // leader will get responses and send commit
+        foreach (i; 0..servers.length){
+            servers[expectedLeaderIdx].runHandleMessageOnce();
+        }
+
+        assert(clients[0].recv() == text, "Client did not receive appropriate response");
+    }
+
+    void testMain() {
+        // leadership tests
+        // test_happy_raftLeaderStepUp();
+        // test_leaderCrash_newStepUp();
+        // test_noQuorom_noLeaderStepUp();
+
+        // entries tests
+        test_happy_appendEntry();
+
+        // Byzantine tests
+
+        
     }
 
     testMain();
@@ -204,4 +228,25 @@ unittest {
 
 void main(){
     writeln("Hello, World!");
+    writeln("Note: the program is meant to run tests only for now. The adjustment
+    to run as actual chat servers require different communication setup ONLY.");
+    // mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+
+    // Fiber[RAFT_NODES] serverFibers;
+    // serverFibers[0] = new Fiber({ servers[0].run(); });
+    // serverFibers[1] = new Fiber({ servers[1].run(); });
+    // serverFibers[2] = new Fiber({ servers[2].run(); });
+    // serverFibers[3] = new Fiber({ servers[3].run(); });
+    // serverFibers[4] = new Fiber({ servers[4].run(); });
+
+    // // run servers in random order to simulate asynchronous behavior
+    // import std.random;
+    // int[] runOrder = [0, 1, 2, 3, 4];
+    // while (true){
+    //     runOrder.randomShuffle();
+    //     foreach (i; runOrder){
+    //         serverFibers[i].call();
+    //     }
+    // }
+    // // Also need to run clients...
 }

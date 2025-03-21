@@ -25,6 +25,9 @@ struct Message {
         PbftPrepare,
         PbftCommit,
         PbftReply,
+
+        ClientRequest = 20,
+        ClientResponse,
     }
     
     int messageId = -1;

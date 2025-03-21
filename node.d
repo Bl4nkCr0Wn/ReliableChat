@@ -71,6 +71,12 @@ class RaftNode : Node {
         }
 
         switch (receivedMsg.type) {
+            case Message.Type.ClientRequest:
+                // Handle client request
+                // ...
+                _handleClientRequest(receivedMsg);
+                break;
+
             case Message.Type.RaftAppendEntries:
                 _receiveHeartbeat();
                 _addEntry(receivedMsg);
@@ -94,6 +100,7 @@ class RaftNode : Node {
                 break;
 
             default:
+                assert(false, "Unknown message type");
                 break;
         }
 
@@ -153,6 +160,28 @@ private:
         m_lastHeartbeat = Clock.currTime();
     }
 
+    bool _handleClientRequest(Message msg) {
+        if (m_currentLeader == INVALID_NODE_ID) {
+            // No leader, client should retry later
+            return false;
+        } else if (m_currentLeader != this.m_id) {
+            // Forward request to leader
+            msg.dstId = m_currentLeader;
+            return m_communicator.send(msg);
+        }
+
+        msg.type = Message.Type.RaftAppendEntries;
+        msg.content = JSONValue(["logIndex" : JSONValue(_getMyLastLogIndex()+1),
+                                "logTerm" : JSONValue(m_currentTerm),
+                                "leaderId" : JSONValue(this.m_id),
+                                "clientId" : JSONValue(msg.srcId),
+                                "content" : JSONValue(msg.content)]);
+        msg.srcId = this.m_id;
+        msg.dstId = 0; // to fill per peer
+        _addEntry(msg);
+        return true;
+    }
+
     bool _addEntry(Message msg) {
         if (m_currentLeader == this.m_id && m_state == RaftState.Leader) {
             writeln("[", this.m_id, "] Leader appending entry: ", msg);
@@ -166,7 +195,7 @@ private:
             m_currentLeader = msg.content["leaderId"].get!NodeId;
             m_currentTerm = msg.content["logTerm"].get!int;
             m_entriesQueue.insertBack(msg);
-            msg.srcId = this.m_id;
+            // msg.srcId = this.m_id;
             msg.dstId = m_currentLeader;
             msg.type = Message.Type.RaftAppendEntriesResponse;
             msg.content["origMessageId"] = msg.messageId;
@@ -180,9 +209,22 @@ private:
     bool _addEntryResponse(Message msg) {
         static uint[int] messageAckCount;
         messageAckCount[msg.content["origMessageId"].get!int]++;
-        if (messageAckCount[msg.content["origMessageId"].get!int] >= (RAFT_NODES / 2)) {
+        // this is strict equality to avoid responding several times to the same message
+        if (messageAckCount[msg.content["origMessageId"].get!int] == (RAFT_NODES / 2)) {
             // Entry is committed
             this.m_entriesQueue.insertBack(msg);
+            if (msg.content["content"].get!string == "heartbeat") {
+                return true;
+            }
+
+            // else this is client request and should receive response
+            Message commitMsg = {
+                type: Message.Type.ClientResponse,
+                srcId: this.m_id,
+                dstId: msg.content["clientId"].get!NodeId,
+                content: JSONValue(msg.content["content"]),
+            };
+            return m_communicator.send(commitMsg);
         }
         
         return true;
@@ -273,8 +315,8 @@ class LocalServerNode : RaftNode {
         this.raftIteration();
     }
 
-    void runHandleMessageOnce(){
-        this.handleRequest();
+    bool runHandleMessageOnce(){
+        return this.handleRequest();
     }
 }
 
@@ -286,16 +328,29 @@ class ClientNode : Node {
     void run() {
         // Client-specific run logic
         // ...
+        assert(false, "Not implemented");
     }
 
     bool send(string text) {
-        // Client-specific send logic
-        // ...
-        return true;
+        Message msg = {
+            type: Message.Type.ClientRequest,
+            srcId: this.m_id,
+            dstId: 1,//For now clients always send to server ID 1
+            content: JSONValue(text),
+        };
+        return this.m_communicator.send(msg);
     }
 
     string recv(){
-        return "";
+        Message msg = {
+            dstId: this.m_id,
+        };
+
+        if (this.m_communicator.recv(msg) && msg.type == Message.Type.ClientResponse){
+            writeln("Client message commited: ", msg);
+            return msg.content.get!string;
+        }
+        return null;
     }
 
     override protected bool handleRequest(){
