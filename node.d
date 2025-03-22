@@ -72,9 +72,12 @@ class RaftNode : Node {
 
         switch (receivedMsg.type) {
             case Message.Type.ClientRequest:
-                // Handle client request
-                // ...
                 _handleClientRequest(receivedMsg);
+                break;
+
+            case Message.Type.ClientResponse:
+                // Client response means leader commited entry
+                _handleClientResponse(receivedMsg);
                 break;
 
             case Message.Type.RaftAppendEntries:
@@ -94,7 +97,6 @@ class RaftNode : Node {
 
             case Message.Type.RaftRequestVoteResponse:
                 _voteResponse(receivedMsg.content["candidateId"].get!NodeId,
-                     receivedMsg.content["logIndex"].get!uint,
                      receivedMsg.content["logTerm"].get!int,
                      receivedMsg.content["voteGranted"].get!bool);
                 break;
@@ -163,6 +165,7 @@ private:
     bool _handleClientRequest(Message msg) {
         if (m_currentLeader == INVALID_NODE_ID) {
             // No leader, client should retry later
+            writeln("[", this.m_id, "] No leader, client should retry later");
             return false;
         } else if (m_currentLeader != this.m_id) {
             // Forward request to leader
@@ -182,6 +185,14 @@ private:
         return true;
     }
 
+    bool _handleClientResponse(Message msg) {
+        // Client response means leader commited entry
+        m_currentLeader = msg.content["leaderId"].get!NodeId;
+        m_currentTerm = msg.content["logTerm"].get!int;
+        m_entriesQueue.insertBack(msg);
+        return true;
+    }
+
     bool _addEntry(Message msg) {
         if (m_currentLeader == this.m_id && m_state == RaftState.Leader) {
             writeln("[", this.m_id, "] Leader appending entry: ", msg);
@@ -191,15 +202,17 @@ private:
                     m_communicator.send(msg);
                 }
             }
-        } else {
-            m_currentLeader = msg.content["leaderId"].get!NodeId;
-            m_currentTerm = msg.content["logTerm"].get!int;
-            m_entriesQueue.insertBack(msg);
-            // msg.srcId = this.m_id;
-            msg.dstId = m_currentLeader;
+        } else if (m_votedFor == msg.srcId || m_currentLeader == msg.srcId) {
+            if (msg.content["content"].get!string == "heartbeat") {
+                m_currentLeader = msg.content["leaderId"].get!NodeId;
+                m_currentTerm = msg.content["logTerm"].get!int;
+                return true;
+            }
+            msg.dstId = msg.srcId;
+            msg.srcId = this.m_id;
             msg.type = Message.Type.RaftAppendEntriesResponse;
             msg.content["origMessageId"] = msg.messageId;
-            writeln("[", this.m_id, "] Follower appending entry: ", msg);
+            writeln("[", this.m_id, "] Follower responding entry: ", msg);
             m_communicator.send(msg);
         }
 
@@ -211,29 +224,44 @@ private:
         messageAckCount[msg.content["origMessageId"].get!int]++;
         // this is strict equality to avoid responding several times to the same message
         if (messageAckCount[msg.content["origMessageId"].get!int] == (RAFT_NODES / 2)) {
-            // Entry is committed
-            this.m_entriesQueue.insertBack(msg);
             if (msg.content["content"].get!string == "heartbeat") {
                 return true;
             }
 
-            // else this is client request and should receive response
+            // Entry is committed
+            this.m_entriesQueue.insertBack(msg);
+            // else this is client request and should receive response (and servers should commit)
             Message commitMsg = {
+                srcId: this.m_id,
+                dstId: 0, // to fill per peer
+                type: Message.Type.ClientResponse,
+                content: JSONValue(["logIndex" : JSONValue(_getMyLastLogIndex),
+                                    "logTerm" : JSONValue(m_currentTerm),
+                                    "leaderId" : JSONValue(this.m_id),
+                                    "content" : JSONValue(msg.content["content"])])
+            };
+            foreach (peer; m_peers) {
+                if (peer != this.m_id) {
+                    commitMsg.dstId = peer;
+                    m_communicator.send(commitMsg);
+                }
+            }
+
+            Message clientMsg = {
                 type: Message.Type.ClientResponse,
                 srcId: this.m_id,
                 dstId: msg.content["clientId"].get!NodeId,
                 content: JSONValue(msg.content["content"]),
             };
-            return m_communicator.send(commitMsg);
+            return m_communicator.send(clientMsg);
         }
         
         return true;
     }
 
     bool _voteRequest(NodeId candidateId, uint logIndex, int logTerm) {
-        //TODO: use last two fields for log comparison
         bool voteGranted = true;
-        if (logTerm < m_currentTerm || m_state != RaftState.Follower) {
+        if (logTerm < m_currentTerm || logIndex < _getMyLastLogTerm() || m_state != RaftState.Follower) {
             voteGranted = false;
         } else {
             m_votedFor = candidateId;
@@ -252,7 +280,7 @@ private:
         return true;
     }
 
-    bool _voteResponse(NodeId candidateId, uint logIndex, int logTerm, bool voteGranted) {
+    bool _voteResponse(NodeId candidateId, int logTerm, bool voteGranted) {
         static uint votedForMe = 1;
         if (logTerm < m_currentTerm || m_state != RaftState.Candidate || candidateId != this.m_id) {
             return false;

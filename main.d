@@ -191,13 +191,30 @@ unittest {
         _raftLeaderStepUp(servers, clients, expectedLeaderIdx);
         assert(tester.checkForLeaderStepUp(SERVER_IDS[expectedLeaderIdx]), "Leader step up failed");
         _handleAllOngoingMessages(servers);
-        
+
         enum text = "Hello, World!";
         clients[0].send(text);
 
         // leader will get request, distribute to followers which will send response
-        foreach (server; servers){
-            writeln("Server");
+        // leader will get responses and send commit
+        _handleAllOngoingMessages(servers);
+
+        assert(clients[0].recv() == text, "Client did not receive appropriate response");
+    }
+
+    void test_noQuorom_appendEntry() {
+        mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+        enum expectedLeaderIdx = 0;
+        
+        _raftLeaderStepUp(servers, clients, expectedLeaderIdx);
+        assert(tester.checkForLeaderStepUp(SERVER_IDS[expectedLeaderIdx]), "Leader step up failed");
+        _handleAllOngoingMessages(servers);
+
+        enum text = "Hello, World!";
+        clients[0].send(text);
+
+        // leader will get request, distribute to NOT ENOUGH followers which will send response
+        foreach (server; servers[expectedLeaderIdx .. expectedLeaderIdx + 2]){
             server.runHandleMessageOnce();
         }
 
@@ -205,6 +222,24 @@ unittest {
         foreach (i; 0..servers.length){
             servers[expectedLeaderIdx].runHandleMessageOnce();
         }
+
+        assert(clients[0].recv() == null, "Client received response when shouldn't have.");
+    }
+
+    void test_differentLeader_appendEntry() {
+        mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+        enum expectedLeaderIdx = 1;
+        
+        _raftLeaderStepUp(servers, clients, expectedLeaderIdx);
+        assert(tester.checkForLeaderStepUp(SERVER_IDS[expectedLeaderIdx]), "Leader step up failed");
+        _handleAllOngoingMessages(servers);
+
+        enum text = "Hello, World!";
+        clients[0].send(text);// sends to server ID[0] as default which isn't leader
+
+        // leader will get request, distribute to followers which will send response
+        // then leader will get responses and send commit
+        _handleAllOngoingMessages(servers);
 
         assert(clients[0].recv() == text, "Client did not receive appropriate response");
     }
@@ -216,7 +251,11 @@ unittest {
         // test_noQuorom_noLeaderStepUp();
 
         // entries tests
-        test_happy_appendEntry();
+        // test_happy_appendEntry();
+        // test_noQuorom_appendEntry();
+        test_differentLeader_appendEntry();
+
+        // PBFT testss 
 
         // Byzantine tests
 
