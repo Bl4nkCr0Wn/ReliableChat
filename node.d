@@ -220,14 +220,14 @@ private:
     }
 
     bool _addEntryResponse(Message msg) {
+        if (msg.content["content"].get!string == "heartbeat") {
+                return true;
+        }
+
         static uint[int] messageAckCount;
         messageAckCount[msg.content["origMessageId"].get!int]++;
         // this is strict equality to avoid responding several times to the same message
         if (messageAckCount[msg.content["origMessageId"].get!int] == (RAFT_NODES / 2)) {
-            if (msg.content["content"].get!string == "heartbeat") {
-                return true;
-            }
-
             // Entry is committed
             this.m_entriesQueue.insertBack(msg);
             // else this is client request and should receive response (and servers should commit)
