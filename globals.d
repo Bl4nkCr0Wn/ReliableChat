@@ -41,6 +41,8 @@ struct Message {
     *        "content" : JSONValue(msg.content)]);
     * 
     * in appendResponse to clientRequest: msg.content["origMessageId"] = msg.messageId;
+    *
+    * in voteResponse: msg.content = JSONValue(["voteGranted" : JSONValue(voteGranted)]);
     */
     // Custom toString overload
     void toString(scope void delegate(const(char)[]) sink) const
