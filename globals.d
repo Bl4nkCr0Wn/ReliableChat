@@ -29,8 +29,19 @@ struct Message {
     Type type;
     NodeId srcId = INVALID_NODE_ID;
     NodeId dstId = INVALID_NODE_ID;
+    uint logIndex = 0;
+    int logTerm = 0;
     JSONValue content;
-
+    /* heartbeat content:
+    * content: JSONValue(["subtype" : JSONValue("heartbeat")])
+    * 
+    * clientRequest content:
+    *        "subtype" : JSONValue("clientRequest"),
+    *        "clientId" : JSONValue(msg.srcId),
+    *        "content" : JSONValue(msg.content)]);
+    * 
+    * in appendResponse to clientRequest: msg.content["origMessageId"] = msg.messageId;
+    */
     // Custom toString overload
     void toString(scope void delegate(const(char)[]) sink) const
     {

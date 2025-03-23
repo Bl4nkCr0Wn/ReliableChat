@@ -82,8 +82,7 @@ unittest {
             for (; m_searchStartIndex < m_messages.length; m_searchStartIndex++){
                 if (m_messages[m_searchStartIndex].type == Message.Type.RaftAppendEntries &&
                     m_messages[m_searchStartIndex].srcId == leaderId &&
-                    m_messages[m_searchStartIndex].content["leaderId"].get!NodeId == leaderId &&
-                    m_messages[m_searchStartIndex].content["content"].get!string == "heartbeat"){
+                    m_messages[m_searchStartIndex].content["subtype"].get!string == "heartbeat"){
                     return true;
                 }
             }
@@ -246,13 +245,13 @@ unittest {
 
     void testMain() {
         // leadership tests
-        // test_happy_raftLeaderStepUp();
-        // test_leaderCrash_newStepUp();
-        // test_noQuorom_noLeaderStepUp();
+        test_happy_raftLeaderStepUp();
+        test_leaderCrash_newStepUp();
+        test_noQuorom_noLeaderStepUp();
 
         // entries tests
-        // test_happy_appendEntry();
-        // test_noQuorom_appendEntry();
+        test_happy_appendEntry();
+        test_noQuorom_appendEntry();
         test_differentLeader_appendEntry();
 
         // PBFT testss 
