@@ -62,16 +62,7 @@ class RaftNode : Node {
         // ...
     }
 
-    override bool handleRequest() {
-        // Handle incoming messages (AppendEntries, RequestVote, etc.)
-        Message receivedMsg = {
-            dstId: this.m_id
-        };
-
-        if (!m_communicator.recv(receivedMsg)) {
-            return false;
-        }
-
+    bool _handleRequest(Message receivedMsg) {
         switch (receivedMsg.type) {
             case Message.Type.ClientRequest:
                 _handleClientRequest(receivedMsg);
@@ -98,8 +89,20 @@ class RaftNode : Node {
                 assert(false, "Unknown message type");
                 break;
         }
-
         return true;
+    }
+
+    override bool handleRequest() {
+        // Handle incoming messages (AppendEntries, RequestVote, etc.)
+        Message receivedMsg = {
+            dstId: this.m_id
+        };
+
+        if (!m_communicator.recv(receivedMsg)) {
+            return false;
+        }
+
+        return _handleRequest(receivedMsg);
     }
 
 private:
@@ -325,6 +328,60 @@ private:
     void _receiveHeartbeat() {
         m_lastHeartbeat = Clock.currTime();
         m_state = RaftState.Follower;
+    }
+}
+
+class RaftMixedPBFTNode : RaftNode {
+
+    this(NodeId id, NodeId[] peers, ICommunicator communicator){
+        super(id, peers, communicator);
+    }
+
+    override protected bool handleRequest(){
+        Message receivedMsg = {
+            dstId: this.m_id
+        };
+
+        if (!m_communicator.recv(receivedMsg)) {
+            return false;
+        }
+
+        switch (receivedMsg.type) {
+            case Message.Type.RaftAppendEntries:
+                // treat as pre-prepare message
+                _receiveHeartbeat();
+                _sendPrepare(receivedMsg);
+                break;
+
+            case Message.Type.PbftPrepare:
+                // upon receiving enough validated prepare send commit reponse to all
+                _handlePrepare(receivedMsg);
+                break;
+
+            case Message.Type.PbftCommit:
+                // upon receiving enough validated commits send clientResponse reponse to client
+                _handleCommit(receivedMsg);
+                break;
+
+            case Message.Type.RaftAppendEntriesResponse:
+                // not supported in PBFT mode
+                break;
+
+            default:
+                _handleRequest(receivedMsg);
+                break;
+        }
+        
+        return true;
+    }
+
+private:
+    void _sendPrepare(Message appendMsg) {
+
+    }
+
+    void _recvPrepare(Message prepareMsg) {
+        Message[int] m_prepareMessages;
     }
 }
 
