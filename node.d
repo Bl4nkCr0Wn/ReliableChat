@@ -244,33 +244,38 @@ private:
         return true;
     }
 
+    bool _handleVerifiedEntry(int verifiedMessageId) {
+        // Entry is committed
+        for (auto it = m_notCommitedEntriesQueue[]; !it.empty; it.popFront()) {
+            if (it.front.messageId == verifiedMessageId) {
+                m_commitedEntriesQueue.insertBack(it.front);
+                m_notCommitedEntriesQueue.popFirstOf(it);
+                break;
+            }
+        }
+        Message commitedEntry = m_commitedEntriesQueue.back;
+        if (commitedEntry.content["subtype"].get!string == "clientRequest") {
+            // this is client request and should receive response (and servers committed)
+            Message clientMsg = {
+                type: Message.Type.ClientResponse,
+                srcId: this.m_id,
+                dstId: commitedEntry.content["clientId"].get!NodeId,
+                logIndex: commitedEntry.logIndex,
+                logTerm: commitedEntry.logTerm,
+                content: JSONValue(commitedEntry.content["content"]),
+            };
+            return m_communicator.send(clientMsg);
+        }
+        return true;
+    }
+
     bool _addEntryResponse(Message msg) {
 
         static uint[int] messageAckCount;
         messageAckCount[msg.content["origMessageId"].get!int]++;
         // this is strict equality to avoid responding several times to the same message
         if (messageAckCount[msg.content["origMessageId"].get!int] == (RAFT_NODES / 2)) {
-            // Entry is committed
-            for (auto it = m_notCommitedEntriesQueue[]; !it.empty; it.popFront()) {
-                if (it.front.messageId == msg.content["origMessageId"].get!int) {
-                    m_commitedEntriesQueue.insertBack(it.front);
-                    m_notCommitedEntriesQueue.popFirstOf(it);
-                    break;
-                }
-            }
-            
-            if (msg.content["subtype"].get!string == "clientRequest") {
-                // this is client request and should receive response (and servers committed)
-                Message clientMsg = {
-                    type: Message.Type.ClientResponse,
-                    srcId: this.m_id,
-                    dstId: msg.content["clientId"].get!NodeId,
-                    logIndex: msg.logIndex,
-                    logTerm: msg.logTerm,
-                    content: JSONValue(msg.content["content"]),
-                };
-                return m_communicator.send(clientMsg);
-            }
+            _handleVerifiedEntry(msg.content["origMessageId"].get!int);
         }
         
         return true;
@@ -349,7 +354,6 @@ class RaftMixedPBFTNode : RaftNode {
         switch (receivedMsg.type) {
             case Message.Type.RaftAppendEntries:
                 // treat as pre-prepare message
-                _receiveHeartbeat();
                 _sendPrepare(receivedMsg);
                 break;
 
@@ -375,13 +379,83 @@ class RaftMixedPBFTNode : RaftNode {
         return true;
     }
 
-private:
-    void _sendPrepare(Message appendMsg) {
-
+    bool _sendPrepare(Message appendMsg) {
+        m_notCommitedEntriesQueue.insertBack(appendMsg);
+        Message prepareMsg = {
+            type: Message.Type.PbftPrepare,
+            srcId: this.m_id,
+            dstId: 0, //fill per peer
+            logIndex: appendMsg.logIndex,
+            logTerm: appendMsg.logTerm,
+            content: JSONValue(["origMessageId" : JSONValue(appendMsg.messageId)]),
+        };
+        
+        foreach (NodeId peer; m_peers) {
+            if (peer != m_id) {
+                prepareMsg.dstId = peer;
+                m_communicator.send(prepareMsg);
+            }
+        }
+        return true;
     }
 
-    void _recvPrepare(Message prepareMsg) {
-        Message[int] m_prepareMessages;
+    void _handlePrepare(Message prepareMsg) {
+        // count from how many peers received prepare for message ID
+        static uint[int] m_prepareMessagesCount;
+        foreach (Message notCommitedMsg; m_notCommitedEntriesQueue) {
+            // For this program verifying the message ID compared to what received from AppendEntry is verification
+            if (notCommitedMsg.messageId == prepareMsg.content["origMessageId"].get!int) {
+                m_prepareMessagesCount[notCommitedMsg.messageId]++;
+
+                if (m_prepareMessagesCount[notCommitedMsg.messageId] == (PBFT_NODES - (PBFT_NODES/3))) {
+                    _sendCommit(prepareMsg);
+                    return;
+                }
+            }
+        }
+    }
+
+    bool _sendCommit(Message prepareMsg) {
+        Message commitMsg = {
+            type: Message.Type.PbftCommit,
+            srcId: this.m_id,
+            dstId: 0, //fill per peer
+            logIndex: prepareMsg.logIndex,
+            logTerm: prepareMsg.logTerm,
+            content: JSONValue(["origMessageId" : prepareMsg.content["origMessageId"]]),
+        };
+        
+        foreach (NodeId peer; m_peers) {
+            if (peer != m_id) {
+                commitMsg.dstId = peer;
+                m_communicator.send(commitMsg);
+            }
+        }
+        return true;
+    }
+
+    void _handleCommit(Message commitMsg) {
+        // count from how many peers received commit for message ID
+        static uint[int] m_commitMessagesCount;
+        foreach (Message notCommitedMsg; m_notCommitedEntriesQueue) {
+            // For this program verifying the message ID compared to what received from AppendEntry is verification
+            if (notCommitedMsg.messageId == commitMsg.content["origMessageId"].get!int) {
+                m_commitMessagesCount[notCommitedMsg.messageId]++;
+
+                if (m_commitMessagesCount[notCommitedMsg.messageId] == (PBFT_NODES - (PBFT_NODES/3))) {
+                    _handleVerifiedEntry(notCommitedMsg.messageId);
+                    _receiveHeartbeat();
+                    Message lastCommitedMsg = m_commitedEntriesQueue.back;
+                    if (m_votedFor == lastCommitedMsg.srcId || m_currentLeader == lastCommitedMsg.srcId) {
+                        if (lastCommitedMsg.content["subtype"].get!string == "heartbeat") {
+                            m_currentLeader = lastCommitedMsg.srcId;
+                            m_currentTerm = lastCommitedMsg.logTerm;
+                        }
+                    }
+                    return;
+                }
+            }
+        }
     }
 }
 

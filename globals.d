@@ -16,10 +16,10 @@ struct Message {
         RaftRequestVote, 
         RaftRequestVoteResponse,
         
-        PbftPrePrepare = 10,
+        PbftPrePrepare = 10,// not used
         PbftPrepare,
         PbftCommit,
-        PbftReply,
+        PbftReply,//not used
 
         ClientRequest = 20,
         ClientResponse,
