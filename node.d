@@ -466,7 +466,7 @@ class RaftMixedPBFTNode : RaftNode {
     }
 }
 
-class RaftLocalServerNode : RaftNode {
+class LocalServerNode(T : RaftNode) : T {
     this(NodeId id, NodeId[] peers, ICommunicator communicator){
         super(id, peers, communicator);
     }
@@ -532,5 +532,28 @@ class RaftClientNode : Node {
 
     override protected bool handleRequest(){
         return true;
+    }
+}
+
+class PbftClientNode : RaftClientNode {
+    this(NodeId id, ICommunicator communicator){
+        super(id, communicator);
+    }
+
+    override string recv(){
+        uint[int] logResponseCount;
+        Message msg = {
+            dstId: this.m_id,
+        };
+
+        if (this.m_communicator.recv(msg) && msg.type == Message.Type.ClientResponse){
+            logResponseCount[msg.logIndex]++;
+            if (logResponseCount[msg.logIndex] == (PBFT_NODES-(PBFT_NODES/3))) {
+                writeln("Client message commited: ", msg);
+                return msg.content.get!string;
+            }
+            return "";
+        }
+        return null;
     }
 }

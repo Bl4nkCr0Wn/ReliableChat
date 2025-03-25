@@ -99,12 +99,12 @@ unittest {
         
         RaftTesterCommunicator tester = new RaftTesterCommunicator(SERVER_IDS, CLIENT_IDS);
         
-        RaftLocalServerNode [serversAmount] servers = [
-            new RaftLocalServerNode(SERVER_IDS[0], SERVER_IDS, tester),
-            new RaftLocalServerNode(SERVER_IDS[1], SERVER_IDS, tester),
-            new RaftLocalServerNode(SERVER_IDS[2], SERVER_IDS, tester),
-            new RaftLocalServerNode(SERVER_IDS[3], SERVER_IDS, tester),
-            new RaftLocalServerNode(SERVER_IDS[4], SERVER_IDS, tester)];
+        LocalServerNode!RaftNode [serversAmount] servers = [
+            new LocalServerNode!RaftNode(SERVER_IDS[0], SERVER_IDS, tester),
+            new LocalServerNode!RaftNode(SERVER_IDS[1], SERVER_IDS, tester),
+            new LocalServerNode!RaftNode(SERVER_IDS[2], SERVER_IDS, tester),
+            new LocalServerNode!RaftNode(SERVER_IDS[3], SERVER_IDS, tester),
+            new LocalServerNode!RaftNode(SERVER_IDS[4], SERVER_IDS, tester)];
         
         RaftClientNode[clientsAmount] clients = [
             new RaftClientNode(CLIENT_IDS[0], tester),
