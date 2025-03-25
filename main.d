@@ -14,12 +14,16 @@ unittest {
         private immutable NodeId[] m_servers;
         private immutable NodeId[] m_clients;
         private int m_searchStartIndex;
+        private bool[NodeId] m_blocked;
 
         this(immutable NodeId[] servers, immutable NodeId[] clients){
             super(servers ~ clients);
             m_servers = servers;
             m_clients = clients;
             m_searchStartIndex = 0;
+            foreach (server; servers){
+                m_blocked[server] = false;
+            }
         }
 
         override bool recv(ref Message msg) {
@@ -30,8 +34,19 @@ unittest {
         }
 
         override bool send(Message msg) {
+            if (msg.dstId in m_blocked && m_blocked[msg.dstId]){
+                return true;
+            }
             m_messages ~= msg;
             return super.send(msg);
+        }
+
+        void block(NodeId target) {
+            m_blocked[target] = true;
+        }
+
+        void unblock(NodeId target) {
+            m_blocked[target] = false;
         }
 
         bool checkForLeaderStepUp(NodeId expectedLeader) {
@@ -256,6 +271,58 @@ unittest {
         test_differentLeader_appendEntry!(RaftNode, RaftClientNode)();
     }
 
+    void test_splitBrainLeader_appendEntry(S, C)() {
+        enum NodeId[PBFT_NODES] SERVER_IDS = [1, 2, 3, 4];
+        enum NodeId[] CLIENT_IDS = [6, 7];
+        
+        RaftTesterCommunicator tester = new RaftTesterCommunicator(SERVER_IDS, CLIENT_IDS);
+        
+        LocalServerNode!S [PBFT_NODES] servers = [
+            new LocalServerNode!S(SERVER_IDS[0], SERVER_IDS, tester),
+            new LocalServerNode!S(SERVER_IDS[1], SERVER_IDS, tester),
+            new LocalServerNode!S(SERVER_IDS[2], SERVER_IDS, tester),
+            new LocalServerNode!S(SERVER_IDS[3], SERVER_IDS, tester)];
+        
+        // LocalServerNode!S splitServerPartOne = new LocalServerNode!S(SERVER_IDS[0], SERVER_IDS[0..2], tester);
+        // LocalServerNode!S splitServerPartTwo = new LocalServerNode!S(SERVER_IDS[0], SERVER_IDS[2..4], tester);
+
+        C[] clients = [
+            new C(CLIENT_IDS[0], tester),
+            new C(CLIENT_IDS[1], tester)];
+
+
+        enum expectedLeaderIdx = 0;
+        
+        _raftLeaderStepUp(servers, clients, expectedLeaderIdx);
+        assert(tester.checkForLeaderStepUp(SERVER_IDS[expectedLeaderIdx]), "Leader step up failed");
+        _handleAllOngoingMessages(servers);
+
+        enum text = "Hello, World!";
+        clients[0].send(text);// sends to server ID[0] as default which isn't leader
+
+        // split one will try "Hello World"
+        tester.block(SERVER_IDS[2]);
+        tester.block(SERVER_IDS[3]);
+        servers[0].runHandleMessageOnce();
+
+        // split two will try "Bye Bye"
+        auto trailCopy = tester.m_memoryMap[SERVER_IDS[1]].back.uniqueIdTrail;
+        tester.block(SERVER_IDS[1]);
+        tester.unblock(SERVER_IDS[2]);
+        tester.unblock(SERVER_IDS[3]);
+        clients[0].send("Bye Bye!");
+        servers[0].runHandleMessageOnce();
+        tester.m_memoryMap[SERVER_IDS[2]].back.uniqueIdTrail = trailCopy;
+        tester.m_memoryMap[SERVER_IDS[3]].back.uniqueIdTrail = trailCopy;
+
+        tester.unblock(SERVER_IDS[1]);
+        // leader will get request, distribute to followers which will send response
+        // then leader will get responses and send commit
+        _handleAllOngoingMessages(servers);
+
+        assert(clients[0].recv() == null, "Client received response while leader acts BYZANTINE");
+    }
+
     void pbftTestMain() {
         // leadership tests
         writeln("\033[32m test_happy_raftLeaderStepUp\033[0m");
@@ -274,7 +341,8 @@ unittest {
         test_differentLeader_appendEntry!(RaftMixedPBFTNode, PbftClientNode)();
 
         // Byzantine leader
-
+        writeln("\033[32m test_splitBrainLeader_appendEntry\033[0m");
+        test_splitBrainLeader_appendEntry!(RaftMixedPBFTNode, PbftClientNode)();
     }
 
     // raftTestMain();

@@ -419,10 +419,13 @@ class RaftMixedPBFTNode : RaftNode {
         // count from how many peers received prepare for message ID
         foreach (Message notCommitedMsg; m_notCommitedEntriesQueue) {
             // For this program verifying the message ID compared to what received from AppendEntry is verification
-            if (notCommitedMsg.uniqueIdTrail == prepareMsg.uniqueIdTrail) {
+            if (notCommitedMsg.uniqueIdTrail == prepareMsg.uniqueIdTrail && (
+                prepareMsg.content["subtype"].get!string == "heartbeat" || 
+                notCommitedMsg.content["content"].get!string == prepareMsg.content["content"].get!string)
+                ) {
                 m_prepareMessagesCount[notCommitedMsg.uniqueIdTrail]++;
 
-                if (m_prepareMessagesCount[notCommitedMsg.uniqueIdTrail] == (PBFT_NODES - (PBFT_NODES/3))) {
+                if (m_prepareMessagesCount[notCommitedMsg.uniqueIdTrail] == (PBFT_NODES - (PBFT_NODES/3)-1)) {
                     _sendCommit(prepareMsg);
                     return;
                 }
@@ -451,15 +454,15 @@ class RaftMixedPBFTNode : RaftNode {
             if (notCommitedMsg.uniqueIdTrail == commitMsg.uniqueIdTrail) {
                 m_commitMessagesCount[notCommitedMsg.uniqueIdTrail]++;
 
-                if (m_commitMessagesCount[notCommitedMsg.uniqueIdTrail] == (PBFT_NODES - (PBFT_NODES/3))) {
+                if (m_commitMessagesCount[notCommitedMsg.uniqueIdTrail] == (PBFT_NODES - (PBFT_NODES/3)-1)) {
                     _handleVerifiedEntry(notCommitedMsg.uniqueIdTrail);
                     if (m_state != RaftState.Leader) {
-                        _receiveHeartbeat();
                         Message lastCommitedMsg = m_commitedEntriesQueue.back;
                         if (m_votedFor == lastCommitedMsg.srcId || m_currentLeader == lastCommitedMsg.srcId) {
                             if (lastCommitedMsg.content["subtype"].get!string == "heartbeat") {
                                 m_currentLeader = lastCommitedMsg.srcId;
                                 m_currentTerm = lastCommitedMsg.logTerm;
+                                _receiveHeartbeat();
                             }
                         }
                     }
