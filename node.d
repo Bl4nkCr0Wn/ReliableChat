@@ -107,6 +107,14 @@ class RaftNode : Node {
 
 private:
 
+    void printQueue(){
+        writeln("\033[34m Current Queue state:\033[0m");
+        foreach (msg; m_notCommitedEntriesQueue) {
+            writeln(msg);
+        }
+        writeln("\033[34m ---------------------------\033[0m");
+    }
+
     uint _getMyLastLogIndex() {
         if (!m_notCommitedEntriesQueue.empty()) {
             return m_notCommitedEntriesQueue.back().logIndex;
@@ -239,6 +247,7 @@ private:
 
             writeln("[", this.m_id, "] Follower adding message to NOT yet commited entries: ", msg);
             m_notCommitedEntriesQueue.insertBack(copyForSave);
+            printQueue();
         }
 
         return true;
@@ -246,12 +255,18 @@ private:
 
     bool _handleVerifiedEntry(int verifiedMessageId) {
         // Entry is committed
+        bool found = false;
         for (auto it = m_notCommitedEntriesQueue[]; !it.empty; it.popFront()) {
             if (it.front.messageId == verifiedMessageId) {
+                found = true;
                 m_commitedEntriesQueue.insertBack(it.front);
                 m_notCommitedEntriesQueue.popFirstOf(it);
                 break;
             }
+        }
+        if (!found) {
+            writeln("Couldn't find message with ID ", verifiedMessageId, " in notCommitedQueue.");
+            return false;
         }
         Message commitedEntry = m_commitedEntriesQueue.back;
         if (commitedEntry.content["subtype"].get!string == "clientRequest") {
