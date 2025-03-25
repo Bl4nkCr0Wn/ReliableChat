@@ -39,6 +39,8 @@ class RaftNode : Node {
     private DList!Message m_notCommitedEntriesQueue;
     private Duration m_electionTimeout;
     private SysTime m_lastHeartbeat;
+    private uint[ulong] m_entryResponseMessageCount;
+    private uint m_countVotedForMe = 1;
 
     this(NodeId id, NodeId[] peers, ICommunicator communicator) {
         super(id, communicator);
@@ -288,10 +290,9 @@ private:
 
     bool _addEntryResponse(Message msg) {
 
-        static uint[ulong] messageAckCount;
-        messageAckCount[msg.uniqueIdTrail]++;
+        m_entryResponseMessageCount[msg.uniqueIdTrail]++;
         // this is strict equality to avoid responding several times to the same message
-        if (messageAckCount[msg.uniqueIdTrail] == (RAFT_NODES / 2)) {
+        if (m_entryResponseMessageCount[msg.uniqueIdTrail] == (RAFT_NODES / 2)) {
             _handleVerifiedEntry(msg.uniqueIdTrail);
         }
         
@@ -316,17 +317,17 @@ private:
     }
 
     bool _voteResponse(Message msg) {
-        static uint votedForMe = 1;
+
         if (msg.logTerm < m_currentTerm || m_state != RaftState.Candidate) {
             return false;
         }
 
         if (msg.content["voteGranted"].get!bool) {
-            votedForMe++;
+            m_countVotedForMe++;
             // Note that starting condition m_state != Candidate protects from double execution
-            if (votedForMe > RAFT_NODES / 2) {
+            if (m_countVotedForMe > RAFT_NODES / 2) {
                 m_state = RaftState.Leader;
-                votedForMe = 1;// candidate always votes for itself
+                m_countVotedForMe = 1;// candidate always votes for itself
                 m_currentLeader = this.m_id;
                 writeln("[", m_id, "] Became leader for term ", m_currentTerm);
                 // Announce new leader step-up
@@ -354,6 +355,9 @@ private:
 }
 
 class RaftMixedPBFTNode : RaftNode {
+
+    private uint[ulong] m_prepareMessagesCount;
+    private uint[ulong] m_commitMessagesCount;
 
     this(NodeId id, NodeId[] peers, ICommunicator communicator){
         super(id, peers, communicator);
@@ -413,7 +417,6 @@ class RaftMixedPBFTNode : RaftNode {
 
     void _handlePrepare(Message prepareMsg) {
         // count from how many peers received prepare for message ID
-        static uint[ulong] m_prepareMessagesCount;
         foreach (Message notCommitedMsg; m_notCommitedEntriesQueue) {
             // For this program verifying the message ID compared to what received from AppendEntry is verification
             if (notCommitedMsg.uniqueIdTrail == prepareMsg.uniqueIdTrail) {
@@ -443,7 +446,6 @@ class RaftMixedPBFTNode : RaftNode {
 
     void _handleCommit(Message commitMsg) {
         // count from how many peers received commit for message ID
-        static uint[ulong] m_commitMessagesCount;
         foreach (Message notCommitedMsg; m_notCommitedEntriesQueue) {
             // For this program verifying the message ID compared to what received from AppendEntry is verification
             if (notCommitedMsg.uniqueIdTrail == commitMsg.uniqueIdTrail) {
@@ -451,12 +453,14 @@ class RaftMixedPBFTNode : RaftNode {
 
                 if (m_commitMessagesCount[notCommitedMsg.uniqueIdTrail] == (PBFT_NODES - (PBFT_NODES/3))) {
                     _handleVerifiedEntry(notCommitedMsg.uniqueIdTrail);
-                    _receiveHeartbeat();
-                    Message lastCommitedMsg = m_commitedEntriesQueue.back;
-                    if (m_votedFor == lastCommitedMsg.srcId || m_currentLeader == lastCommitedMsg.srcId) {
-                        if (lastCommitedMsg.content["subtype"].get!string == "heartbeat") {
-                            m_currentLeader = lastCommitedMsg.srcId;
-                            m_currentTerm = lastCommitedMsg.logTerm;
+                    if (m_state != RaftState.Leader) {
+                        _receiveHeartbeat();
+                        Message lastCommitedMsg = m_commitedEntriesQueue.back;
+                        if (m_votedFor == lastCommitedMsg.srcId || m_currentLeader == lastCommitedMsg.srcId) {
+                            if (lastCommitedMsg.content["subtype"].get!string == "heartbeat") {
+                                m_currentLeader = lastCommitedMsg.srcId;
+                                m_currentTerm = lastCommitedMsg.logTerm;
+                            }
                         }
                     }
                     return;
@@ -546,13 +550,12 @@ class PbftClientNode : RaftClientNode {
             dstId: this.m_id,
         };
 
-        if (this.m_communicator.recv(msg) && msg.type == Message.Type.ClientResponse){
+        while (this.m_communicator.recv(msg) && msg.type == Message.Type.ClientResponse){
             logResponseCount[msg.logIndex]++;
             if (logResponseCount[msg.logIndex] == (PBFT_NODES-(PBFT_NODES/3))) {
                 writeln("Client message commited: ", msg);
                 return msg.content.get!string;
             }
-            return "";
         }
         return null;
     }

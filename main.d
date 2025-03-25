@@ -285,23 +285,4 @@ void main(){
     writeln("Hello, World!");
     writeln("Note: the program is meant to run tests only for now. The adjustment
     to run as actual chat servers require different communication setup ONLY.");
-    // mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
-
-    // Fiber[RAFT_NODES] serverFibers;
-    // serverFibers[0] = new Fiber({ servers[0].run(); });
-    // serverFibers[1] = new Fiber({ servers[1].run(); });
-    // serverFibers[2] = new Fiber({ servers[2].run(); });
-    // serverFibers[3] = new Fiber({ servers[3].run(); });
-    // serverFibers[4] = new Fiber({ servers[4].run(); });
-
-    // // run servers in random order to simulate asynchronous behavior
-    // import std.random;
-    // int[] runOrder = [0, 1, 2, 3, 4];
-    // while (true){
-    //     runOrder.randomShuffle();
-    //     foreach (i; runOrder){
-    //         serverFibers[i].call();
-    //     }
-    // }
-    // // Also need to run clients...
 }
