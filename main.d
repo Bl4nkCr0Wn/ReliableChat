@@ -93,22 +93,22 @@ unittest {
 
     // basic scenario enables 5 servers and 2 client on local machine by using
     // servers[i] and clients[i]
-    mixin template raftBasicScenarioSetup(const uint serversAmount, const uint clientsAmount) {
+    mixin template raftBasicScenarioSetup(S, C, const uint serversAmount, const uint clientsAmount) {
         enum NodeId[serversAmount] SERVER_IDS = [1, 2, 3, 4, 5];
         enum NodeId[clientsAmount] CLIENT_IDS = [6, 7];
         
         RaftTesterCommunicator tester = new RaftTesterCommunicator(SERVER_IDS, CLIENT_IDS);
         
-        LocalServerNode!RaftNode [serversAmount] servers = [
-            new LocalServerNode!RaftNode(SERVER_IDS[0], SERVER_IDS, tester),
-            new LocalServerNode!RaftNode(SERVER_IDS[1], SERVER_IDS, tester),
-            new LocalServerNode!RaftNode(SERVER_IDS[2], SERVER_IDS, tester),
-            new LocalServerNode!RaftNode(SERVER_IDS[3], SERVER_IDS, tester),
-            new LocalServerNode!RaftNode(SERVER_IDS[4], SERVER_IDS, tester)];
+        LocalServerNode!S [serversAmount] servers = [
+            new LocalServerNode!S(SERVER_IDS[0], SERVER_IDS, tester),
+            new LocalServerNode!S(SERVER_IDS[1], SERVER_IDS, tester),
+            new LocalServerNode!S(SERVER_IDS[2], SERVER_IDS, tester),
+            new LocalServerNode!S(SERVER_IDS[3], SERVER_IDS, tester),
+            new LocalServerNode!S(SERVER_IDS[4], SERVER_IDS, tester)];
         
-        RaftClientNode[clientsAmount] clients = [
-            new RaftClientNode(CLIENT_IDS[0], tester),
-            new RaftClientNode(CLIENT_IDS[1], tester)];
+        C[clientsAmount] clients = [
+            new C(CLIENT_IDS[0], tester),
+            new C(CLIENT_IDS[1], tester)];
     }
 
     void _raftLeaderStepUp(S, C)(ref S servers, ref C clients, NodeId wantedLeaderIdx) {
@@ -128,12 +128,7 @@ unittest {
             servers[wantedLeaderIdx].runHandleMessageOnce();
         }
         // recv heartbeats from leader
-        foreach (i; 0..servers.length){
-            if (i != wantedLeaderIdx){
-                servers[i].runHandleMessageOnce();
-                servers[i].runRaftIteration();
-            }
-        }
+        _handleAllOngoingMessages(servers);
     }
 
     void _handleAllOngoingMessages(S)(ref S servers) {
@@ -146,8 +141,8 @@ unittest {
         }
     }
 
-    void test_happy_raftLeaderStepUp() {
-        mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+    void test_happy_raftLeaderStepUp(S, C)() {
+        mixin raftBasicScenarioSetup!(S, C, RAFT_NODES, 2);
         enum expectedLeaderIdx = 0;
         
         _raftLeaderStepUp(servers, clients, expectedLeaderIdx);
@@ -155,8 +150,8 @@ unittest {
         assert(tester.checkForLeaderStepUp(SERVER_IDS[expectedLeaderIdx]), "Leader step up failed");
     }
 
-    void test_leaderCrash_newStepUp() {
-        mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+    void test_leaderCrash_newStepUp(S, C)() {
+        mixin raftBasicScenarioSetup!(S, C, RAFT_NODES, 2);
         enum firstExpectedLeaderIdx = 0;
         enum secondExpectedLeaderIdx = 1;
         
@@ -169,8 +164,8 @@ unittest {
         assert(tester.checkForLeaderStepUp(SERVER_IDS[secondExpectedLeaderIdx]), "Second leader step up failed");
     }
 
-    void test_noQuorom_noLeaderStepUp(){
-        mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+    void test_noQuorom_noLeaderStepUp(S, C)(){
+        mixin raftBasicScenarioSetup!(S, C, RAFT_NODES, 2);
         enum firstExpectedLeaderIdx = 0;
         enum secondExpectedLeaderIdx = 1;
         
@@ -183,8 +178,8 @@ unittest {
         assert(false == tester.checkForLeaderStepUp(SERVER_IDS[secondExpectedLeaderIdx]), "Second leader step up occured UNEXPECTEDLY");
     }
 
-    void test_happy_appendEntry() {
-        mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+    void test_happy_appendEntry(S, C)() {
+        mixin raftBasicScenarioSetup!(S, C, RAFT_NODES, 2);
         enum expectedLeaderIdx = 0;
         
         _raftLeaderStepUp(servers, clients, expectedLeaderIdx);
@@ -201,8 +196,8 @@ unittest {
         assert(clients[0].recv() == text, "Client did not receive appropriate response");
     }
 
-    void test_noQuorom_appendEntry() {
-        mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+    void test_noQuorom_appendEntry(S, C)() {
+        mixin raftBasicScenarioSetup!(S, C, RAFT_NODES, 2);
         enum expectedLeaderIdx = 0;
         
         _raftLeaderStepUp(servers, clients, expectedLeaderIdx);
@@ -225,8 +220,8 @@ unittest {
         assert(clients[0].recv() == null, "Client received response when shouldn't have.");
     }
 
-    void test_differentLeader_appendEntry() {
-        mixin raftBasicScenarioSetup!(RAFT_NODES, 2);
+    void test_differentLeader_appendEntry(S, C)() {
+        mixin raftBasicScenarioSetup!(S, C, RAFT_NODES, 2);
         enum expectedLeaderIdx = 1;
         
         _raftLeaderStepUp(servers, clients, expectedLeaderIdx);
@@ -243,31 +238,47 @@ unittest {
         assert(clients[0].recv() == text, "Client did not receive appropriate response");
     }
 
-    void testMain() {
+    void raftTestMain() {
         // leadership tests
         writeln("\033[32m test_happy_raftLeaderStepUp\033[0m");
-        test_happy_raftLeaderStepUp();
+        test_happy_raftLeaderStepUp!(RaftNode, RaftClientNode)();
         writeln("\033[32m test_leaderCrash_newStepUp\033[0m");
-        test_leaderCrash_newStepUp();
+        test_leaderCrash_newStepUp!(RaftNode, RaftClientNode)();
         writeln("\033[32m test_noQuorom_noLeaderStepUp\033[0m");
-        test_noQuorom_noLeaderStepUp();
+        test_noQuorom_noLeaderStepUp!(RaftNode, RaftClientNode)();
 
         // entries tests
         writeln("\033[32m test_happy_appendEntry\033[0m");
-        test_happy_appendEntry();
+        test_happy_appendEntry!(RaftNode, RaftClientNode)();
         writeln("\033[32m test_noQuorom_appendEntry\033[0m");
-        test_noQuorom_appendEntry();
+        test_noQuorom_appendEntry!(RaftNode, RaftClientNode)();
         writeln("\033[32m test_differentLeader_appendEntry\033[0m");
-        test_differentLeader_appendEntry();
-
-        // PBFT tests
-
-        // Byzantine tests
-
-        
+        test_differentLeader_appendEntry!(RaftNode, RaftClientNode)();
     }
 
-    testMain();
+    void pbftTestMain() {
+        // leadership tests
+        writeln("\033[32m test_happy_raftLeaderStepUp\033[0m");
+        test_happy_raftLeaderStepUp!(RaftMixedPBFTNode, PbftClientNode)();
+        writeln("\033[32m test_leaderCrash_newStepUp\033[0m");
+        test_leaderCrash_newStepUp!(RaftMixedPBFTNode, PbftClientNode)();
+        writeln("\033[32m test_noQuorom_noLeaderStepUp\033[0m");
+        test_noQuorom_noLeaderStepUp!(RaftMixedPBFTNode, PbftClientNode)();
+
+        // entries tests
+        writeln("\033[32m test_happy_appendEntry\033[0m");
+        test_happy_appendEntry!(RaftMixedPBFTNode, PbftClientNode)();
+        writeln("\033[32m test_noQuorom_appendEntry\033[0m");
+        test_noQuorom_appendEntry!(RaftMixedPBFTNode, PbftClientNode)();
+        writeln("\033[32m test_differentLeader_appendEntry\033[0m");
+        test_differentLeader_appendEntry!(RaftMixedPBFTNode, PbftClientNode)();
+
+        // Byzantine leader
+
+    }
+
+    // raftTestMain();
+    pbftTestMain();
 }
 
 void main(){
