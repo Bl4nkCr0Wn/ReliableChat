@@ -466,7 +466,7 @@ class RaftMixedPBFTNode : RaftNode {
     }
 }
 
-class LocalServerNode : RaftNode {
+class RaftLocalServerNode : RaftNode {
     this(NodeId id, NodeId[] peers, ICommunicator communicator){
         super(id, peers, communicator);
     }
@@ -497,7 +497,7 @@ class LocalServerNode : RaftNode {
     }
 }
 
-class ClientNode : Node {
+class RaftClientNode : Node {
     this(NodeId id, ICommunicator communicator){
         super(id, communicator);
     }
