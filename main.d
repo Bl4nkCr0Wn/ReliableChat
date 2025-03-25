@@ -245,13 +245,19 @@ unittest {
 
     void testMain() {
         // leadership tests
+        writeln("\033[32m test_happy_raftLeaderStepUp\033[0m");
         test_happy_raftLeaderStepUp();
+        writeln("\033[32m test_leaderCrash_newStepUp\033[0m");
         test_leaderCrash_newStepUp();
+        writeln("\033[32m test_noQuorom_noLeaderStepUp\033[0m");
         test_noQuorom_noLeaderStepUp();
 
         // entries tests
+        writeln("\033[32m test_happy_appendEntry\033[0m");
         test_happy_appendEntry();
+        writeln("\033[32m test_noQuorom_appendEntry\033[0m");
         test_noQuorom_appendEntry();
+        writeln("\033[32m test_differentLeader_appendEntry\033[0m");
         test_differentLeader_appendEntry();
 
         // PBFT testss 

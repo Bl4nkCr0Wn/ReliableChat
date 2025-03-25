@@ -174,6 +174,7 @@ private:
             logTerm: m_currentTerm,
             content: JSONValue(["subtype" : JSONValue("heartbeat")])
         };
+        heartbeat.generateUniqueTrailId();
         this._addEntry(heartbeat);
         m_lastHeartbeat = Clock.currTime();
     }
@@ -200,6 +201,7 @@ private:
             "content" : JSONValue(msg.content)]);
         msg.srcId = this.m_id;
         msg.dstId = 0; // to fill per peer
+        msg.generateUniqueTrailId();
         _addEntry(msg);
         return true;
     }
@@ -253,11 +255,11 @@ private:
         return true;
     }
 
-    bool _handleVerifiedEntry(int verifiedMessageId) {
+    bool _handleVerifiedEntry(ulong verifiedMessageId) {
         // Entry is committed
         bool found = false;
         for (auto it = m_notCommitedEntriesQueue[]; !it.empty; it.popFront()) {
-            if (it.front.messageId == verifiedMessageId) {
+            if (it.front.uniqueIdTrail == verifiedMessageId) {
                 found = true;
                 m_commitedEntriesQueue.insertBack(it.front);
                 m_notCommitedEntriesQueue.popFirstOf(it);
@@ -286,11 +288,11 @@ private:
 
     bool _addEntryResponse(Message msg) {
 
-        static uint[int] messageAckCount;
-        messageAckCount[msg.content["origMessageId"].get!int]++;
+        static uint[ulong] messageAckCount;
+        messageAckCount[msg.uniqueIdTrail]++;
         // this is strict equality to avoid responding several times to the same message
-        if (messageAckCount[msg.content["origMessageId"].get!int] == (RAFT_NODES / 2)) {
-            _handleVerifiedEntry(msg.content["origMessageId"].get!int);
+        if (messageAckCount[msg.uniqueIdTrail] == (RAFT_NODES / 2)) {
+            _handleVerifiedEntry(msg.uniqueIdTrail);
         }
         
         return true;
@@ -396,14 +398,9 @@ class RaftMixedPBFTNode : RaftNode {
 
     bool _sendPrepare(Message appendMsg) {
         m_notCommitedEntriesQueue.insertBack(appendMsg);
-        Message prepareMsg = {
-            type: Message.Type.PbftPrepare,
-            srcId: this.m_id,
-            dstId: 0, //fill per peer
-            logIndex: appendMsg.logIndex,
-            logTerm: appendMsg.logTerm,
-            content: JSONValue(["origMessageId" : JSONValue(appendMsg.messageId)]),
-        };
+        Message prepareMsg = appendMsg;
+        prepareMsg.type = Message.Type.PbftPrepare;
+        prepareMsg.srcId = this.m_id;
         
         foreach (NodeId peer; m_peers) {
             if (peer != m_id) {
@@ -416,13 +413,13 @@ class RaftMixedPBFTNode : RaftNode {
 
     void _handlePrepare(Message prepareMsg) {
         // count from how many peers received prepare for message ID
-        static uint[int] m_prepareMessagesCount;
+        static uint[ulong] m_prepareMessagesCount;
         foreach (Message notCommitedMsg; m_notCommitedEntriesQueue) {
             // For this program verifying the message ID compared to what received from AppendEntry is verification
-            if (notCommitedMsg.messageId == prepareMsg.content["origMessageId"].get!int) {
-                m_prepareMessagesCount[notCommitedMsg.messageId]++;
+            if (notCommitedMsg.uniqueIdTrail == prepareMsg.uniqueIdTrail) {
+                m_prepareMessagesCount[notCommitedMsg.uniqueIdTrail]++;
 
-                if (m_prepareMessagesCount[notCommitedMsg.messageId] == (PBFT_NODES - (PBFT_NODES/3))) {
+                if (m_prepareMessagesCount[notCommitedMsg.uniqueIdTrail] == (PBFT_NODES - (PBFT_NODES/3))) {
                     _sendCommit(prepareMsg);
                     return;
                 }
@@ -431,14 +428,9 @@ class RaftMixedPBFTNode : RaftNode {
     }
 
     bool _sendCommit(Message prepareMsg) {
-        Message commitMsg = {
-            type: Message.Type.PbftCommit,
-            srcId: this.m_id,
-            dstId: 0, //fill per peer
-            logIndex: prepareMsg.logIndex,
-            logTerm: prepareMsg.logTerm,
-            content: JSONValue(["origMessageId" : prepareMsg.content["origMessageId"]]),
-        };
+        Message commitMsg = prepareMsg;
+        commitMsg.type = Message.Type.PbftCommit;
+        commitMsg.srcId = this.m_id;
         
         foreach (NodeId peer; m_peers) {
             if (peer != m_id) {
@@ -451,14 +443,14 @@ class RaftMixedPBFTNode : RaftNode {
 
     void _handleCommit(Message commitMsg) {
         // count from how many peers received commit for message ID
-        static uint[int] m_commitMessagesCount;
+        static uint[ulong] m_commitMessagesCount;
         foreach (Message notCommitedMsg; m_notCommitedEntriesQueue) {
             // For this program verifying the message ID compared to what received from AppendEntry is verification
-            if (notCommitedMsg.messageId == commitMsg.content["origMessageId"].get!int) {
-                m_commitMessagesCount[notCommitedMsg.messageId]++;
+            if (notCommitedMsg.uniqueIdTrail == commitMsg.uniqueIdTrail) {
+                m_commitMessagesCount[notCommitedMsg.uniqueIdTrail]++;
 
-                if (m_commitMessagesCount[notCommitedMsg.messageId] == (PBFT_NODES - (PBFT_NODES/3))) {
-                    _handleVerifiedEntry(notCommitedMsg.messageId);
+                if (m_commitMessagesCount[notCommitedMsg.uniqueIdTrail] == (PBFT_NODES - (PBFT_NODES/3))) {
+                    _handleVerifiedEntry(notCommitedMsg.uniqueIdTrail);
                     _receiveHeartbeat();
                     Message lastCommitedMsg = m_commitedEntriesQueue.back;
                     if (m_votedFor == lastCommitedMsg.srcId || m_currentLeader == lastCommitedMsg.srcId) {

@@ -26,6 +26,7 @@ struct Message {
     }
     
     int messageId = -1;
+    ulong uniqueIdTrail = 0;
     Type type;
     NodeId srcId = INVALID_NODE_ID;
     NodeId dstId = INVALID_NODE_ID;
@@ -48,6 +49,11 @@ struct Message {
     void toString(scope void delegate(const(char)[]) sink) const
     {
         import std.format : formattedWrite;
-        formattedWrite(sink, "[MessageId %d | type %s | src %d | dst %d ] %s", messageId, type, srcId, dstId, content);
+        formattedWrite(sink, "[MessageId %d | uniqueId %u | type %s | src %d | dst %d ] %s", messageId, uniqueIdTrail, type, srcId, dstId, content);
+    }
+
+    void generateUniqueTrailId() {
+        import std.random;
+        uniqueIdTrail = uniform!ulong();
     }
 }
