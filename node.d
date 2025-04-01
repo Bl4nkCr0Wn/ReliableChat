@@ -96,15 +96,23 @@ class RaftNode : Node {
 
     override bool handleRequest() {
         // Handle incoming messages (AppendEntries, RequestVote, etc.)
-        Message receivedMsg = {
-            dstId: this.m_id
-        };
+        Message receivedMsg;
 
-        if (!m_communicator.recv(receivedMsg)) {
+        if (!this.recv(receivedMsg)) {
             return false;
         }
 
         return _handleRequest(receivedMsg);
+    }
+
+protected:
+    bool send(ref Message msg){
+        return this.m_communicator.send(msg);
+    }
+
+    bool recv(ref Message msg){
+        msg.dstId = this.m_id;
+        return this.m_communicator.recv(msg);
     }
 
 private:
@@ -158,7 +166,7 @@ private:
         foreach (peer; m_peers) {
             if (peer != this.m_id) {
                 requestVoteMsg.dstId = peer;
-                m_communicator.send(requestVoteMsg);
+                this.send(requestVoteMsg);
             }
         }
 
@@ -190,7 +198,7 @@ private:
             // Forward request to leader
             writeln("[", this.m_id, "] Currently not leader, forwarding request to leader", m_currentLeader);
             msg.dstId = m_currentLeader;
-            return m_communicator.send(msg);
+            return this.send(msg);
         }
 
         // Leader handles client request
@@ -216,7 +224,7 @@ private:
             foreach (peer; m_peers) {
                 if (peer != this.m_id) {
                     msg.dstId = peer;
-                    m_communicator.send(msg);
+                    this.send(msg);
                 }
             }
             writeln("[", this.m_id, "] Adding message to NOT yet commited entries: ", msg);
@@ -246,7 +254,7 @@ private:
             msg.type = Message.Type.RaftAppendEntriesResponse;
             msg.content["origMessageId"] = msg.messageId;
             writeln("[", this.m_id, "] Follower responding entry: ", msg);
-            m_communicator.send(msg);
+            this.send(msg);
             // }
 
             writeln("[", this.m_id, "] Follower adding message to NOT yet commited entries: ", msg);
@@ -283,7 +291,7 @@ private:
                 logTerm: commitedEntry.logTerm,
                 content: JSONValue(commitedEntry.content["content"]),
             };
-            return m_communicator.send(clientMsg);
+            return this.send(clientMsg);
         }
         return true;
     }
@@ -313,7 +321,7 @@ private:
         msg.srcId = this.m_id;
         msg.content = JSONValue(["voteGranted" : JSONValue(voteGranted)]);
         writeln("[", this.m_id, "] Voting for ", m_votedFor, " in term ", msg.logTerm);
-        return m_communicator.send(msg);
+        return this.send(msg);
     }
 
     bool _voteResponse(Message msg) {
@@ -364,11 +372,9 @@ class RaftMixedPBFTNode : RaftNode {
     }
 
     override protected bool handleRequest(){
-        Message receivedMsg = {
-            dstId: this.m_id
-        };
+        Message receivedMsg;
 
-        if (!m_communicator.recv(receivedMsg)) {
+        if (!this.recv(receivedMsg)) {
             return false;
         }
 
@@ -409,7 +415,7 @@ class RaftMixedPBFTNode : RaftNode {
         foreach (NodeId peer; m_peers) {
             if (peer != m_id) {
                 prepareMsg.dstId = peer;
-                m_communicator.send(prepareMsg);
+                this.send(prepareMsg);
             }
         }
         return true;
@@ -441,7 +447,7 @@ class RaftMixedPBFTNode : RaftNode {
         foreach (NodeId peer; m_peers) {
             if (peer != m_id) {
                 commitMsg.dstId = peer;
-                m_communicator.send(commitMsg);
+                this.send(commitMsg);
             }
         }
         return true;
