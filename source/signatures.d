@@ -6,13 +6,14 @@ import std.string;
 import std.digest.sha;
 import std.algorithm;
 import std.range;
+import std.conv;
 
-import openssl.rsa;
-import openssl.pkey;
-import openssl.bio;
-import openssl.err;
-import openssl.evprsa;
-import openssl.ssl;
+import deimos.openssl.rsa;
+// import deimos.openssl.pkey;
+import deimos.openssl.bio;
+// import deimos.openssl.err;
+// import deimos.openssl.evprsa;
+import deimos.openssl.ssl;
 import core.stdc.string;
 
 import globals;
@@ -48,7 +49,7 @@ class SignatureAgent {
             return false;
         }
         m_privateBio = bioPriv;
-        m_publicRsa = rsaPriv;
+        m_privateRsa = rsaPriv;
         return true;
     }
 
@@ -94,7 +95,7 @@ class SignatureAgent {
     bool verify(Message msg, NodeId author){
         auto hash = getMessageHashToSign(msg);
         int verifyResult = RSA_verify(NID_sha256, hash.ptr, cast(uint)hash.length,
-                                    msg.signature.ptr, sigLen, m_publicRsas[author]);
+                                    msg.signature.ptr, msg.signatureLen, m_publicRsas[author]);
 
         if (verifyResult == 1) {
             return true;
