@@ -9,10 +9,7 @@ import std.range;
 import std.conv;
 
 import deimos.openssl.rsa;
-// import deimos.openssl.pkey;
 import deimos.openssl.bio;
-// import deimos.openssl.err;
-// import deimos.openssl.evprsa;
 import deimos.openssl.ssl;
 import core.stdc.string;
 
@@ -39,7 +36,7 @@ class SignatureAgent {
         }
     }
 
-    bool loadPrivate(NodeId id){
+    private bool loadPrivate(NodeId id){
         // --- Load Private Key for Signing ---
         char[] privateKeyPem = cast(char[]) readText(format("private_key_%d.pem", id));
         BIO* bioPriv = BIO_new_mem_buf(privateKeyPem.ptr, cast(int)privateKeyPem.length);
@@ -53,7 +50,7 @@ class SignatureAgent {
         return true;
     }
 
-    bool loadPublic(NodeId id){
+    private bool loadPublic(NodeId id){
         // --- Load Public Key for Verification ---
         auto publicKeyPem = cast(char[]) readText(format("public_key_%d.pem", id));
         BIO* bioPub = BIO_new_mem_buf(publicKeyPem.ptr, cast(int)publicKeyPem.length);
@@ -67,7 +64,7 @@ class SignatureAgent {
         return true;
     }
 
-    ubyte[SHA256_DIGEST_LENGTH] getMessageHashToSign(Message msg){
+    private ubyte[SHA256_DIGEST_LENGTH] getMessageHashToSign(Message msg){
         ubyte[SHA256_DIGEST_LENGTH] hash;
         string toSign = msg.uniqueIdTrail.to!string;
         if (msg.type == Message.Type.RaftAppendEntries) {

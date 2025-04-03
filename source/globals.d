@@ -51,7 +51,7 @@ struct Message {
     void toString(scope void delegate(const(char)[]) sink) const
     {
         import std.format : formattedWrite;
-        formattedWrite(sink, "[MessageId %d | uniqueId %u | type %s | src %d | dst %d ] %s", messageId, uniqueIdTrail, type, srcId, dstId, content);
+        formattedWrite(sink, "[MessageId %d | uniqueId %u | type %s | src %d | dst %d | sigLen %d] %s", messageId, uniqueIdTrail, type, srcId, dstId, signatureLen, content);
     }
 
     void generateUniqueTrailId() {

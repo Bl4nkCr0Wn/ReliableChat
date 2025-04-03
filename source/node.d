@@ -31,6 +31,8 @@ class RaftNode : Node {
     enum uint MAX_ELECTION_TIMEOUT = 8;//seconds
 
     private NodeId[] m_peers;
+    import signatures;
+    private SignatureAgent m_signatureAgent;
     private RaftState m_state = RaftState.Follower;
     private int m_currentTerm = -1;
     private NodeId m_votedFor = INVALID_NODE_ID;
@@ -49,6 +51,7 @@ class RaftNode : Node {
         m_notCommitedEntriesQueue = DList!Message();
         _resetElectionTimeout();
         m_lastHeartbeat = Clock.currTime();
+        m_signatureAgent = new SignatureAgent(id, peers);
     }
 
     void raftIteration() {
@@ -107,12 +110,21 @@ class RaftNode : Node {
 
 protected:
     bool send(ref Message msg){
+        if (m_state == RaftState.Leader) {
+            m_signatureAgent.sign(msg);
+        }
         return this.m_communicator.send(msg);
     }
 
     bool recv(ref Message msg){
         msg.dstId = this.m_id;
-        return this.m_communicator.recv(msg);
+        bool res = this.m_communicator.recv(msg);
+        if (res){
+            if (msg.signatureLen != 0) {
+                res = m_signatureAgent.verify(msg, m_currentLeader);
+            }
+        }
+        return res;
     }
 
 private:
