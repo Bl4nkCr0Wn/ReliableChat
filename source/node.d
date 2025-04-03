@@ -113,6 +113,7 @@ protected:
         if (m_state == RaftState.Leader) {
             m_signatureAgent.sign(msg);
         }
+
         return this.m_communicator.send(msg);
     }
 
@@ -121,7 +122,7 @@ protected:
         bool res = this.m_communicator.recv(msg);
         if (res){
             if (msg.signatureLen != 0) {
-                res = m_signatureAgent.verify(msg, m_currentLeader);
+                res = m_signatureAgent.verify(msg, m_votedFor);
             }
         }
         return res;
@@ -261,6 +262,7 @@ private:
                 }
             } 
             // else if (msg.content["subtype"].get!string == "clientRequest") {
+            msg.signatureLen = 0;
             msg.dstId = msg.srcId;
             msg.srcId = this.m_id;
             msg.type = Message.Type.RaftAppendEntriesResponse;
@@ -329,6 +331,7 @@ private:
         }
         
         msg.type = Message.Type.RaftRequestVoteResponse;
+        msg.signatureLen = 0;
         msg.dstId = msg.srcId;
         msg.srcId = this.m_id;
         msg.content = JSONValue(["voteGranted" : JSONValue(voteGranted)]);

@@ -20,17 +20,22 @@ class SignatureAgent {
     private RSA* m_privateRsa;
     private BIO*[NodeId] m_publicBios;
     private RSA*[NodeId] m_publicRsas;
+    private NodeId[] m_peers;
     this(NodeId myId, NodeId[] peers){
+        writeln("Loading private key for ", myId, " and public for ", peers);
+        m_peers = peers;
         loadPrivate(myId);
         foreach (peer; peers){
-            loadPublic(peer);
+            if (!loadPublic(peer)){
+                writeln("Failed to load public key for ", peer);
+            }
         }
     }
 
     ~this(){
         RSA_free(m_privateRsa);
         BIO_free(m_privateBio);
-        foreach(i; m_publicBios.keys){
+        foreach(i; m_peers){
             RSA_free(m_publicRsas[i]);
             BIO_free(m_publicBios[i]);
         }
@@ -67,7 +72,9 @@ class SignatureAgent {
     private ubyte[SHA256_DIGEST_LENGTH] getMessageHashToSign(Message msg){
         ubyte[SHA256_DIGEST_LENGTH] hash;
         string toSign = msg.uniqueIdTrail.to!string;
-        if (msg.type == Message.Type.RaftAppendEntries) {
+        if (msg.type == Message.Type.RaftAppendEntries ||
+            msg.type == Message.Type.PbftPrepare ||
+            msg.type == Message.Type.PbftCommit) {
             toSign ~= msg.content["subtype"].get!string;
             if (msg.content["subtype"].get!string == "clientRequest"){
                 toSign ~= msg.content["content"].get!string;
@@ -91,12 +98,14 @@ class SignatureAgent {
 
     bool verify(Message msg, NodeId author){
         auto hash = getMessageHashToSign(msg);
+        writeln("Verifying message by author ", author);
         int verifyResult = RSA_verify(NID_sha256, hash.ptr, cast(uint)hash.length,
                                     msg.signature.ptr, msg.signatureLen, m_publicRsas[author]);
 
         if (verifyResult == 1) {
             return true;
         } else {
+            writeln("Failed to verify message ", msg.messageId);
             return false;
         }
     }
