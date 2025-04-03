@@ -32,6 +32,8 @@ struct Message {
     NodeId dstId = INVALID_NODE_ID;
     uint logIndex = 0;
     int logTerm = 0;
+    ubyte[256] signature;
+    uint signatureLen = 0;
     JSONValue content;
     /* heartbeat content:
     * content: JSONValue(["subtype" : JSONValue("heartbeat")])
