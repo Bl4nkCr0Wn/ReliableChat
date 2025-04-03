@@ -1,0 +1,13 @@
+{
+	"authors": [
+		"Nevo Biton"
+	],
+	"copyright": "Copyright © 2025, Nevo Biton",
+	"dependencies": {
+		"openssl": "~>3.3.4",
+		"vibe-d": "~>0.10.2"
+	},
+	"description": "Chat reliable app",
+	"license": "Unlicense",
+	"name": "chat"
+}
